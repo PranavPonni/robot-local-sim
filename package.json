@@ -1,0 +1,14 @@
+{
+  "name": "robot-local-sim",
+  "version": "0.1.0",
+  "description": "Local 6DOF robot arm simulator served from localhost and accessible on iPad",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

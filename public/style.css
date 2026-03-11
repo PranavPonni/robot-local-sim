@@ -1,0 +1,11 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Inter, system-ui, -apple-system, sans-serif; background: #12131a; color: #f4f6ff; }
+#root { max-width: 1200px; margin: auto; padding: 1rem; }
+h1 { margin: 0 0 0.5rem; font-size: 1.52rem; text-align: center; }
+#renderer { width: 100%; height: 70vh; border: 1px solid #3b4a66; border-radius: 8px; background: #0b0d17; }
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.7rem; margin: 0.9rem 0; }
+.control-block { border: 1px solid #34507f; border-radius: 8px; padding: 0.68rem; background: rgba(42, 52, 79, 0.7); }
+.control-block label { display: block; font-size: 0.84rem; margin-bottom: 0.3rem; color: #b9c4db; }
+.control-block input[type=range] { width: 100%; }
+.control-block .value { margin-top: 0.16rem; font-weight: 700; }
+.footer { margin-top: 0.7rem; font-size: 0.84rem; text-align: center; color: #b9c4db; }
