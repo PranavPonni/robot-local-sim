@@ -13,8 +13,23 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const dom = document.getElementById('renderer');
 dom.appendChild(renderer.domElement);
 
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.8, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.1;
+controls.rotateSpeed = 0.4;
+controls.zoomSpeed = 0.8;
+controls.panSpeed = 0.7;
+
 const grid = new THREE.GridHelper(12, 24, 0x445a88, 0x2b3e61);
 scene.add(grid);
+
+const baseGeom = new THREE.CylinderGeometry(0.25, 0.25, 0.08, 64);
+const baseMaterial = new THREE.MeshStandardMaterial({ color: 0x505c7f, metalness: 0.45, roughness: 0.35 });
+const baseMesh = new THREE.Mesh(baseGeom, baseMaterial);
+baseMesh.position.y = 0.04;
+baseMesh.receiveShadow = true;
+scene.add(baseMesh);
 
 const ambientLight = new THREE.AmbientLight(0x86a7d8, 0.72);
 scene.add(ambientLight);
@@ -160,7 +175,7 @@ function applyPose() {
 
 function animate() {
   requestAnimationFrame(animate);
-  camera.lookAt(robot.position);
+  controls.update();
   renderer.render(scene, camera);
 }
 
