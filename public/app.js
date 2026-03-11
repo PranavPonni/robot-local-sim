@@ -1,8 +1,8 @@
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x101826);
 
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(3.5, 2.8, 5.2);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(5.4, 3.5, 7.5);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -11,171 +11,138 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const dom = document.getElementById('renderer');
+dom.innerHTML = ''; // clear old DOM if any
 dom.appendChild(renderer.domElement);
 
-const controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 0.8, 0);
-controls.enableDamping = true;
-controls.dampingFactor = 0.1;
-controls.rotateSpeed = 0.4;
-controls.zoomSpeed = 0.8;
-controls.panSpeed = 0.7;
-
-const grid = new THREE.GridHelper(12, 24, 0x445a88, 0x2b3e61);
+const grid = new THREE.GridHelper(14, 28, 0x445a88, 0x2b3e61);
 scene.add(grid);
 
-const baseGeom = new THREE.CylinderGeometry(0.25, 0.25, 0.08, 64);
-const baseMaterial = new THREE.MeshStandardMaterial({ color: 0x505c7f, metalness: 0.45, roughness: 0.35 });
-const baseMesh = new THREE.Mesh(baseGeom, baseMaterial);
-baseMesh.position.y = 0.04;
-baseMesh.receiveShadow = true;
-scene.add(baseMesh);
+const axisHelper = new THREE.AxesHelper(1.8);
+scene.add(axisHelper);
 
-const ambientLight = new THREE.AmbientLight(0x86a7d8, 0.72);
+const ambientLight = new THREE.AmbientLight(0xc6d4ee, 0.64);
 scene.add(ambientLight);
 
-const dirLight = new THREE.DirectionalLight(0xdbe6ff, 1.1);
-dirLight.position.set(6, 10, 6);
-dirLight.castShadow = true;
-dirLight.shadow.mapSize.set(2048, 2048);
-scene.add(dirLight);
+const dLight = new THREE.DirectionalLight(0xffffff, 1.15);
+dLight.position.set(6, 10, 5);
+dLight.castShadow = true;
+dLight.shadow.mapSize.set(2048, 2048);
+scene.add(dLight);
 
 const robot = new THREE.Object3D();
+robot.position.y = 0.05;
 scene.add(robot);
 
-const UR5Joints = [
-  { name: 'shoulder_pan_joint', axis: 'y', length: 0.162, color: 0x6da5f6 },
-  { name: 'shoulder_lift_joint', axis: 'x', length: 0.425, color: 0x8bd49f },
-  { name: 'elbow_joint', axis: 'x', length: 0.392, color: 0xf9c560 },
-  { name: 'wrist_1_joint', axis: 'y', length: 0.109, color: 0xe37f7f },
-  { name: 'wrist_2_joint', axis: 'x', length: 0.094, color: 0xa97ae6 },
-  { name: 'wrist_3_joint', axis: 'y', length: 0.082, color: 0x39c7f5 }
-];
-
-function makeLink(length = 1, color = 0x5a78d4) {
-  const geo = new THREE.BoxGeometry(0.16, length, 0.16);
-  const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.5, roughness: 0.3, emissive: 0x001227 });
+function linkMesh(length, radius, color) {
+  const geo = new THREE.CylinderGeometry(radius, radius, length, 48);
+  const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.45, roughness: 0.25, emissive: 0x041125 });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  mesh.position.y = length / 2;
+  mesh.rotation.x = Math.PI / 2;
   return mesh;
 }
 
+const ur5 = [
+  { name: 'shoulder_pan_joint', axis: 'y', len: 0.18, color: 0x3d7ec4 },
+  { name: 'shoulder_lift_joint', axis: 'x', len: 0.42, color: 0x5ca06b },
+  { name: 'elbow_joint', axis: 'x', len: 0.39, color: 0xd6a337 },
+  { name: 'wrist_1_joint', axis: 'y', len: 0.11, color: 0xcc4f5c },
+  { name: 'wrist_2_joint', axis: 'x', len: 0.095, color: 0x8d5ecf },
+  { name: 'wrist_3_joint', axis: 'y', len: 0.082, color: 0x3ca8c9 }
+];
+
 const joints = [];
-let parent = robot;
+let parentNode = robot;
 
-UR5Joints.forEach((jointDef, i) => {
+ur5.forEach((j, idx) => {
   const pivot = new THREE.Object3D();
-  parent.add(pivot);
-
-  const link = makeLink(jointDef.length * 2.0, jointDef.color);
+  parentNode.add(pivot);
+  const link = linkMesh(j.len * 4.5, 0.11, j.color);
+  link.position.set(0, j.len * 2.25, 0);
   pivot.add(link);
 
-  joints.push({ pivot, ...jointDef, angle: 0 });
+  joints.push({ pivot, axis: j.axis, name: j.name, angle: 0 });
 
-  const translate = new THREE.Object3D();
-  translate.position.y = jointDef.length * 2.0;
-  pivot.add(translate);
-
-  parent = translate;
+  const next = new THREE.Object3D();
+  next.position.set(0, j.len * 4.5, 0);
+  pivot.add(next);
+  parentNode = next;
 });
 
-robot.position.y = 0.05;
+const controlsEl = document.getElementById('controls');
+controlsEl.innerHTML = '';
 
-const controlMap = {
-  shoulder_pan_joint: { min: -180, max: 180, step: 1 },
-  shoulder_lift_joint: { min: -180, max: 180, step: 1 },
-  elbow_joint: { min: -180, max: 180, step: 1 },
-  wrist_1_joint: { min: -180, max: 180, step: 1 },
-  wrist_2_joint: { min: -180, max: 180, step: 1 },
-  wrist_3_joint: { min: -180, max: 180, step: 1 }
-};
+const state = new Array(6).fill(0);
 
-const controlsElement = document.getElementById('controls');
-const jointState = UR5Joints.map(() => 0);
-
-function createControlBlock(jointDef, index) {
+ur5.forEach((joint, idx) => {
   const block = document.createElement('div');
   block.className = 'control-block';
 
   const label = document.createElement('label');
-  label.innerText = `${jointDef.name} (${jointDef.axis.toUpperCase()})`;
+  label.textContent = `${joint.name} (${joint.axis.toUpperCase()})`;
   block.appendChild(label);
 
-  const layout = document.createElement('div');
-  layout.style.display = 'flex';
-  layout.style.alignItems = 'center';
-  layout.style.gap = '0.4rem';
+  const controlsRow = document.createElement('div');
+  controlsRow.style.display = 'flex';
+  controlsRow.style.alignItems = 'center';
+  controlsRow.style.gap = '0.4rem';
 
-  const minus = document.createElement('button');
-  minus.innerText = '-';
-  minus.style.width = '32px';
-  minus.style.height = '32px';
+  const bMinus = document.createElement('button');
+  bMinus.textContent = '-';
+  bMinus.style.width = '32px';
+  bMinus.style.height = '32px';
 
-  const plus = document.createElement('button');
-  plus.innerText = '+';
-  plus.style.width = '32px';
-  plus.style.height = '32px';
-
-  const valueLabel = document.createElement('div');
-  valueLabel.className = 'value';
-  valueLabel.innerText = '0°';
+  const bPlus = document.createElement('button');
+  bPlus.textContent = '+';
+  bPlus.style.width = '32px';
+  bPlus.style.height = '32px';
 
   const slider = document.createElement('input');
   slider.type = 'range';
-  slider.min = controlMap[jointDef.name].min;
-  slider.max = controlMap[jointDef.name].max;
-  slider.step = controlMap[jointDef.name].step;
+  slider.min = -180;
+  slider.max = 180;
+  slider.step = 1;
   slider.value = 0;
   slider.style.flex = '1';
 
-  const updateValue = (value) => {
-    jointState[index] = value;
-    valueLabel.innerText = `${value.toFixed(0)}°`;
-    slider.value = value;
-    applyPose();
+  const val = document.createElement('div');
+  val.className = 'value';
+  val.textContent = '0°';
+
+  const setAngle = (angle) => {
+    state[idx] = angle;
+    slider.value = angle;
+    val.textContent = `${angle.toFixed(0)}°`;
+    updateRobot();
   };
 
-  minus.addEventListener('click', () => {
-    const next = Math.max(Number(slider.min), jointState[index] - 5);
-    updateValue(next);
-  });
+  bMinus.onclick = () => setAngle(Math.max(-180, state[idx] - 5));
+  bPlus.onclick = () => setAngle(Math.min(180, state[idx] + 5));
+  slider.oninput = (ev) => setAngle(parseFloat(ev.target.value));
 
-  plus.addEventListener('click', () => {
-    const next = Math.min(Number(slider.max), jointState[index] + 5);
-    updateValue(next);
-  });
+  controlsRow.appendChild(bMinus);
+  controlsRow.appendChild(slider);
+  controlsRow.appendChild(bPlus);
 
-  slider.addEventListener('input', (event) => {
-    updateValue(Number(event.target.value));
-  });
+  block.appendChild(controlsRow);
+  block.appendChild(val);
 
-  layout.appendChild(minus);
-  layout.appendChild(slider);
-  layout.appendChild(plus);
-  block.appendChild(layout);
-  block.appendChild(valueLabel);
+  controlsEl.appendChild(block);
+});
 
-  controlsElement.appendChild(block);
-}
-
-UR5Joints.forEach(createControlBlock);
-
-function applyPose() {
-  joints.forEach((joint, i) => {
-    const radians = THREE.MathUtils.degToRad(jointState[i]);
-
+function updateRobot() {
+  joints.forEach((joint, idx) => {
+    const rad = THREE.MathUtils.degToRad(state[idx]);
     joint.pivot.rotation.set(0, 0, 0);
-    if (joint.axis === 'x') joint.pivot.rotation.x = radians;
-    if (joint.axis === 'y') joint.pivot.rotation.y = radians;
-    if (joint.axis === 'z') joint.pivot.rotation.z = radians;
+    if (joint.axis === 'x') joint.pivot.rotation.x = rad;
+    if (joint.axis === 'y') joint.pivot.rotation.y = rad;
+    if (joint.axis === 'z') joint.pivot.rotation.z = rad;
   });
 }
 
 function animate() {
   requestAnimationFrame(animate);
-  controls.update();
   renderer.render(scene, camera);
 }
 
@@ -185,5 +152,5 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight * 0.75);
 });
 
-applyPose();
+updateRobot();
 animate();
