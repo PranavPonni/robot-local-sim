@@ -60,12 +60,15 @@ class Simulator:
 
     def step(self, dt: float) -> None:
         if self.motion_queue:
-            self.step_queue(dt)
+            self._process_motion_queue(dt)
             return
 
         if not self.is_playing or self.target_joints is None:
             return
 
+        self._advance_to_target(dt)
+
+    def _advance_to_target(self, dt: float) -> None:
         current = self.robot.joints
         delta = self.target_joints - current
         max_step = dt * self.interp_speed
@@ -77,7 +80,24 @@ class Simulator:
 
         if np.linalg.norm(self.target_joints - self.robot.joints) < 1e-3:
             self.robot.joints = self.target_joints
+            if self.motion_queue:
+                self.target_joints = None
+            else:
+                self.is_playing = False
+
+    def _process_motion_queue(self, dt: float) -> None:
+        if not self.motion_queue:
             self.is_playing = False
+            return
+
+        if self.target_joints is None:
+            self.target_joints = self.robot.clamp_joints(self.motion_queue.pop(0))
+            self.is_playing = True
+
+        self._advance_to_target(dt)
+
+        if not self.is_playing and not self.motion_queue:
+            self.target_joints = None
 
     def reset(self) -> None:
         self.robot.joints = np.zeros(6, dtype=float)

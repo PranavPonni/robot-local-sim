@@ -46,25 +46,9 @@ class RobotGLView(gl.GLViewWidget):
             self.addItem(line)
             self.link_items.append(line)
 
-        # joint markers as spheres / scatter
-        pos = np.array(joints_positions)
-        joint_marker = gl.GLScatterPlotItem(pos=pos, size=10, color=(1.0, 0.4, 0.4, 1.0))
-        self.addItem(joint_marker)
-        self.joint_items.append(joint_marker)
-
-        # end-effector marker
+        # only links + one end-effector marker
         ee = np.array([poses[-1][:3, 3]])
         self.ee_marker = gl.GLScatterPlotItem(pos=ee, size=14, color=(1.0, 0.2, 0.2, 1.0))
-        self.addItem(self.ee_marker)
-
-        # joint sphere markers
-        pos = np.array(joints_positions)
-        self.joint_items.append(gl.GLScatterPlotItem(pos=pos, size=8, color=(1.0, 0.3, 0.3, 1.0)))
-        self.addItem(self.joint_items[-1])
-
-        # end-effector marker
-        ee = np.array([poses[-1][:3, 3]])
-        self.ee_marker = gl.GLScatterPlotItem(pos=ee, size=12, color=(0.1, 1.0, 0.1, 1.0))
         self.addItem(self.ee_marker)
 
     @staticmethod
