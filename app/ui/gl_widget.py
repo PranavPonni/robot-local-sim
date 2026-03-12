@@ -54,7 +54,7 @@ class RobotGLView(gl.GLViewWidget):
 
         # end-effector marker
         ee = np.array([poses[-1][:3, 3]])
-        self.ee_marker = gl.GLScatterPlotItem(pos=ee, size=14, color=(0.1, 1.0, 0.1, 1.0))
+        self.ee_marker = gl.GLScatterPlotItem(pos=ee, size=14, color=(1.0, 0.2, 0.2, 1.0))
         self.addItem(self.ee_marker)
 
         # joint sphere markers

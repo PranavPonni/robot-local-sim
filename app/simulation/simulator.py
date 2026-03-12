@@ -41,6 +41,7 @@ class Simulator:
         self.trajectory = Trajectory()
         self.user_mode = "joint"  # or 'cartesian'
         self.motion_queue: List[np.ndarray] = []
+        self.recording = False
 
     def set_joint_target(self, target: np.ndarray) -> None:
         self.target_joints = self.robot.clamp_joints(target)
@@ -58,6 +59,10 @@ class Simulator:
         self.is_playing = success
 
     def step(self, dt: float) -> None:
+        if self.motion_queue:
+            self.step_queue(dt)
+            return
+
         if not self.is_playing or self.target_joints is None:
             return
 
@@ -67,7 +72,8 @@ class Simulator:
         step = np.clip(delta, -max_step, max_step)
         self.robot.joints = current + step
 
-        self.trajectory.record(self.robot.joints)
+        if self.recording:
+            self.trajectory.record(self.robot.joints)
 
         if np.linalg.norm(self.target_joints - self.robot.joints) < 1e-3:
             self.robot.joints = self.target_joints
@@ -85,7 +91,15 @@ class Simulator:
 
     def play_trajectory(self, trajectory: Trajectory) -> None:
         self.motion_queue = [t.copy() for t in trajectory.points]
+        self.target_joints = None
         self.is_playing = True
+
+    def start_recording(self) -> None:
+        self.recording = True
+        self.trajectory.clear()
+
+    def stop_recording(self) -> None:
+        self.recording = False
 
     def step_queue(self, dt: float) -> None:
         if not self.is_playing or not self.motion_queue:

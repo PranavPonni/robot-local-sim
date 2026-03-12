@@ -144,15 +144,15 @@ class MainWindow(QMainWindow):
     def _make_trajectory_tab(self) -> QWidget:
         page = QWidget()
         vlayout = QVBoxLayout(page)
-        btn_record = QPushButton("Record Pose")
-        btn_record.clicked.connect(self.on_record_trajectory)
+        self.record_button = QPushButton("Start Recording")
+        self.record_button.clicked.connect(self.on_record_trajectory)
         btn_replay = QPushButton("Replay")
         btn_replay.clicked.connect(self.on_replay_trajectory)
         btn_save = QPushButton("Save Trajectory")
         btn_save.clicked.connect(self.on_save_trajectory)
         btn_load = QPushButton("Load Trajectory")
         btn_load.clicked.connect(self.on_load_trajectory)
-        vlayout.addWidget(btn_record)
+        vlayout.addWidget(self.record_button)
         vlayout.addWidget(btn_replay)
         vlayout.addWidget(btn_save)
         vlayout.addWidget(btn_load)
@@ -282,10 +282,19 @@ class MainWindow(QMainWindow):
                 self._log("Invalid robot config")
 
     def on_record_trajectory(self):
-        self.simulator.trajectory.record(np.copy(self.robot.joints))
-        self._log("Recorded current pose")
+        if not self.simulator.recording:
+            self.simulator.start_recording()
+            self.record_button.setText("Stop Recording")
+            self._log("Started trajectory recording")
+        else:
+            self.simulator.stop_recording()
+            self.record_button.setText("Start Recording")
+            self._log(f"Stopped recording ({len(self.simulator.trajectory.points)} points)")
 
     def on_replay_trajectory(self):
+        if not self.simulator.trajectory.points:
+            self._log("No trajectory to replay")
+            return
         self.simulator.play_trajectory(self.simulator.trajectory)
         self._log("Replaying trajectory")
 
