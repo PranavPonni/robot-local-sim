@@ -42,6 +42,7 @@ class MainWindow(QMainWindow):
         """)
         self.robot = Robot6DoF.default()
         self.simulator = Simulator(self.robot)
+        self.simulator.reset()  # Initialize robot to home position
         self.scene = Scene()
 
         self.gl_view = RobotGLView()
@@ -52,11 +53,25 @@ class MainWindow(QMainWindow):
         self.joint_sliders: list[QSlider] = []
         self.joint_spinboxes: list[QDoubleSpinBox] = []
         self.cartesian_spins = {}
+        
+        # Initialize cartesian spinboxes for Solve IK function
+        for name in ["x", "y", "z", "roll", "pitch", "yaw"]:
+            spin = QDoubleSpinBox()
+            spin.setRange(-2.0, 2.0 if name in ["x", "y", "z"] else 180.0)
+            spin.setDecimals(3)
+            spin.setSingleStep(0.01)
+            # Set reasonable defaults for picking
+            if name == "x":
+                spin.setValue(0.3)
+            elif name == "z":
+                spin.setValue(0.1)
+            self.cartesian_spins[name] = spin
 
         self._build_ui()
         self._connect_signals()
 
         self._update_ui_from_robot()
+        self.gl_view.update_scene(self.scene)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
@@ -74,7 +89,6 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
 
         tabs.addTab(self._make_joint_tab(), "Joint")
-        tabs.addTab(self._make_cartesian_tab(), "Cartesian")
         tabs.addTab(self._make_trajectory_tab(), "Trajectory")
         tabs.addTab(self._make_scene_tab(), "Scene")
         tabs.addTab(self._make_settings_tab(), "Settings")
@@ -126,22 +140,6 @@ class MainWindow(QMainWindow):
 
         return page
 
-    def _make_cartesian_tab(self) -> QWidget:
-        page = QWidget()
-        vlayout = QVBoxLayout(page)
-        for name in ["x", "y", "z", "roll", "pitch", "yaw"]:
-            h = QHBoxLayout()
-            label = QLabel(name)
-            spin = QDoubleSpinBox()
-            spin.setRange(-2.0, 2.0 if name in ["x", "y", "z"] else 180.0)
-            spin.setDecimals(3)
-            spin.setSingleStep(0.01)
-            h.addWidget(label)
-            h.addWidget(spin)
-            vlayout.addLayout(h)
-            self.cartesian_spins[name] = spin
-        return page
-
     def _make_trajectory_tab(self) -> QWidget:
         page = QWidget()
         vlayout = QVBoxLayout(page)
@@ -162,12 +160,41 @@ class MainWindow(QMainWindow):
     def _make_scene_tab(self) -> QWidget:
         page = QWidget()
         vlayout = QVBoxLayout(page)
+        
+        # Add instructions
+        vlayout.addWidget(QLabel("Cube Position:"))
+        
+        # Cube position controls
+        self.cube_pos = {"x": None, "y": None, "z": None}
+        for i, axis in enumerate(["x", "y", "z"]):
+            h = QHBoxLayout()
+            label = QLabel(f"{axis.upper()}:")
+            spin = QDoubleSpinBox()
+            spin.setRange(-1.0, 1.0)
+            spin.setDecimals(3)
+            spin.setSingleStep(0.05)
+            spin.setValue(0.2 if axis == "x" else 0.0)
+            h.addWidget(label)
+            h.addWidget(spin)
+            vlayout.addLayout(h)
+            self.cube_pos[axis] = spin
+        
         btn_cube = QPushButton("Add Cube")
         btn_cube.clicked.connect(self.on_add_cube)
+        btn_pick = QPushButton("Pick Last Cube with IK")
+        btn_pick.clicked.connect(self.on_pick_cube_ik)
         btn_clear = QPushButton("Clear Scene")
         btn_clear.clicked.connect(self.on_clear_scene)
         vlayout.addWidget(btn_cube)
+        vlayout.addWidget(btn_pick)
         vlayout.addWidget(btn_clear)
+        
+        vlayout.addWidget(QLabel("To pick a cube:"))
+        vlayout.addWidget(QLabel("1. Add a cube at target position"))
+        vlayout.addWidget(QLabel("2. Use Joint tab to position robot"))
+        vlayout.addWidget(QLabel("3. Or use Solve IK with target pose"))
+        
+        vlayout.addStretch()
         return page
 
     def _make_settings_tab(self) -> QWidget:
@@ -218,6 +245,7 @@ class MainWindow(QMainWindow):
         self.simulator.interp_speed = self.speed_spin.value()
         self.simulator.step(0.03)
         self.gl_view.update_robot(self.robot)
+        self.gl_view.update_scene(self.scene)
         self._update_ui_from_robot()
 
     def on_joint_slider_changed(self, joint_index: int, value: int):
@@ -236,36 +264,45 @@ class MainWindow(QMainWindow):
 
     def on_home(self):
         self.simulator.home()
-        self._log("Home command issued")
+        self._log("🏠 Moving to home position [0.0, 0.0, 1.62, 0.0, 1.5, 0.0]")
 
     def on_reset(self):
         self.simulator.reset()
-        self._log("Reset simulator")
+        self._log("⟲ Reset to home position")
 
     def on_solve_ik(self):
         target = self._read_cartesian_target()
         if target is None:
-            self._log("Invalid cartesian target")
+            self._log("❌ Invalid cartesian target")
             return
+        pos = target[:3, 3]
+        self._log(f"🎯 Solving IK for target position: ({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f})")
         self.simulator.set_cartesian_target(target)
-        self._log("Solve IK requested")
+        if self.simulator.is_playing:
+            self._log(f"✓ IK solved! Robot moving...")
+        else:
+            self._log(f"⚠ Target position may not be reachable")
 
     def on_execute(self):
         self.simulator.set_joint_target(np.copy(self.robot.joints))
-        self._log("Execute motion from current joint values")
+        self._log("▶ Executing motion from current joint values")
 
     def on_demo(self):
-        # simple pick-place routine
+        # Load demo trajectory from demo.json
         self.simulator.reset()
-        sequence = [
-            np.array([0.0, -0.2, 0.2, 0.0, 0.4, 0.0]),
-            np.array([0.1, -0.1, 0.3, 0.1, 0.2, 0.0]),
-            np.zeros(6),
-        ]
-        for p in sequence:
-            self.simulator.trajectory.points.append(p)
-        self.simulator.play_trajectory(self.simulator.trajectory)
-        self._log("Demo pick-and-place started")
+        try:
+            import json
+            with open("demo.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.simulator.trajectory.clear()
+            for point in data.get("trajectory", []):
+                self.simulator.trajectory.points.append(np.array(point, dtype=float))
+            self.simulator.play_trajectory(self.simulator.trajectory)
+            self._log(f"Demo started with {len(self.simulator.trajectory.points)} waypoints from demo.json")
+        except FileNotFoundError:
+            self._log("demo.json not found")
+        except Exception as e:
+            self._log(f"Error loading demo: {e}")
 
     def on_save_config(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save Robot Config", "robot_config.json", "JSON files (*.json)")
@@ -330,13 +367,63 @@ class MainWindow(QMainWindow):
             self._log(f"Loaded trajectory from {path}")
 
     def on_add_cube(self):
-        pose = homogeneous_from_rt(np.eye(3), np.array([0.2, 0.0, 0.015]))
-        self.scene.add_cube(f"cube{len(self.scene.objects)+1}", pose)
-        self._log("Added cube to scene")
+        x = float(self.cube_pos["x"].value())
+        y = float(self.cube_pos["y"].value())
+        z = float(self.cube_pos["z"].value())
+        
+        # Validate position is reachable
+        if z < 0:
+            self._log("❌ Cube Z position must be above ground (≥ 0)")
+            return
+        
+        pose = homogeneous_from_rt(np.eye(3), np.array([x, y, z]))
+        cube_name = f"cube{len(self.scene.objects)+1}"
+        self.scene.add_cube(cube_name, pose)
+        self._log(f"✓ Added {cube_name} at position ({x:.3f}, {y:.3f}, {z:.3f})")
+        self._log(f"  Tip: Use 'Pick Last Cube with IK' or set Solve IK target to ({x:.3f}, {y:.3f}, {z:.3f})")
 
     def on_clear_scene(self):
         self.scene.clear()
         self._log("Cleared scene objects")
+
+    def on_pick_cube_ik(self):
+        if not self.scene.objects:
+            self._log("❌ No cubes in scene!")
+            return
+        
+        # Get the last cube position
+        last_cube = self.scene.objects[-1]
+        cube_pos = last_cube.pose[:3, 3]
+        
+        # Update Solve IK spinboxes to match cube position
+        self.cartesian_spins["x"].blockSignals(True)
+        self.cartesian_spins["y"].blockSignals(True)
+        self.cartesian_spins["z"].blockSignals(True)
+        self.cartesian_spins["x"].setValue(float(cube_pos[0]))
+        self.cartesian_spins["y"].setValue(float(cube_pos[1]))
+        self.cartesian_spins["z"].setValue(float(cube_pos[2]))
+        self.cartesian_spins["x"].blockSignals(False)
+        self.cartesian_spins["y"].blockSignals(False)
+        self.cartesian_spins["z"].blockSignals(False)
+        
+        # Offset the position slightly above the cube for picking
+        # (add some Z height to approach from above)
+        target_pos = cube_pos + np.array([0.0, 0.0, 0.08])
+        
+        # Create target pose (identity rotation, target position)
+        target_pose = homogeneous_from_rt(np.eye(3), target_pos)
+        
+        # Log the attempt
+        self._log(f"🎯 Solving IK to pick cube at ({cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f})")
+        
+        # Solve IK
+        self.simulator.set_cartesian_target(target_pose)
+        
+        # Check if motion started
+        if self.simulator.is_playing:
+            self._log(f"✓ IK solved! Robot moving to approach position above cube")
+        else:
+            self._log(f"⚠ IK solver had difficulty - position may not be reachable")
 
     def _read_cartesian_target(self):
         try:
