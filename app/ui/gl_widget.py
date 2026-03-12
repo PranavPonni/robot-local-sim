@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import QWidget
+from PySide6.QtGui import QMatrix4x4
 import pyqtgraph.opengl as gl
 import numpy as np
 
@@ -61,7 +62,13 @@ class RobotGLView(gl.GLViewWidget):
             tr = np.eye(4)
             tr[0:3, 0:3] = rot
             tr[0:3, 3] = center
-            link.setTransform(gl.Transform3D.fromMatrix(tr))
+            mat = QMatrix4x4(
+                float(tr[0, 0]), float(tr[0, 1]), float(tr[0, 2]), float(tr[0, 3]),
+                float(tr[1, 0]), float(tr[1, 1]), float(tr[1, 2]), float(tr[1, 3]),
+                float(tr[2, 0]), float(tr[2, 1]), float(tr[2, 2]), float(tr[2, 3]),
+                float(tr[3, 0]), float(tr[3, 1]), float(tr[3, 2]), float(tr[3, 3]),
+            )
+            link.setTransform(mat)
             self.addItem(link)
             self.link_items.append(link)
 
