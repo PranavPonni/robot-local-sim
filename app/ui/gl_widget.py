@@ -50,7 +50,7 @@ class RobotGLView(gl.GLViewWidget):
                 continue
 
             axis = dir_vec / length
-            mesh = gl.MeshData.cylinder(rows=12, cols=24, radius=0.02, length=length)
+            mesh = gl.MeshData.cylinder(rows=12, cols=24, radius=[0.02, 0.02], length=length)
             item = gl.GLMeshItem(meshdata=mesh, smooth=True, color=(0.2, 0.7, 1.0, 1.0), shader='shaded', drawEdges=False)
 
             # align cylinder z-axis to link direction
