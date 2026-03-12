@@ -66,7 +66,8 @@ class RobotGLView(gl.GLViewWidget):
                 if np.linalg.norm(rot_axis) > 1e-6:
                     item.rotate(angle, float(rot_axis[0]), float(rot_axis[1]), float(rot_axis[2]))
 
-            item.translate(float(p0[0]), float(p0[1]), float(p0[2]))
+            mid = (p0 + p1) / 2.0
+            item.translate(float(mid[0]), float(mid[1]), float(mid[2]))
             self.addItem(item)
             self.link_items.append(item)
 
@@ -84,20 +85,28 @@ class RobotGLView(gl.GLViewWidget):
         # gripper open/close, mounted on end-effector joint (pose[-1])
         ee_pos = poses[-1][:3, 3]
         ee_rot = poses[-1][:3, :3]
-        half_open = self.gripper_open * 0.5
         finger_length = 0.05
         finger_thickness = 0.006
         finger_height = 0.02
 
-        base_offset = ee_rot @ np.array([0.0, 0.0, -0.02])
-        left_offset = ee_rot @ np.array([half_open + finger_thickness / 2.0, 0.0, 0.0])
-        right_offset = ee_rot @ np.array([-half_open - finger_thickness / 2.0, 0.0, 0.0])
+        open_angle = self.gripper_open
+        max_spread = 0.033
 
-        left_center = ee_pos + base_offset + left_offset
-        right_center = ee_pos + base_offset + right_offset
+        pivot_world = ee_pos + ee_rot @ np.array([0.0, 0.0, -0.02])
 
-        left_finger = self.create_box_mesh_item(left_center, ee_rot, finger_thickness, finger_height, finger_length, color=(1.0, 1.0, 0.0, 1.0))
-        right_finger = self.create_box_mesh_item(right_center, ee_rot, finger_thickness, finger_height, finger_length, color=(1.0, 1.0, 0.0, 1.0))
+        def rot_y(theta: float) -> np.ndarray:
+            c = np.cos(theta)
+            s = np.sin(theta)
+            return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]], dtype=float)
+
+        left_rotation = ee_rot @ rot_y(open_angle)
+        right_rotation = ee_rot @ rot_y(-open_angle)
+
+        left_center = pivot_world + ee_rot @ np.array([max_spread * np.cos(open_angle), 0.0, -finger_length / 2.0])
+        right_center = pivot_world + ee_rot @ np.array([-max_spread * np.cos(open_angle), 0.0, -finger_length / 2.0])
+
+        left_finger = self.create_box_mesh_item(left_center, left_rotation, finger_thickness, finger_height, finger_length, color=(1.0, 1.0, 0.0, 1.0))
+        right_finger = self.create_box_mesh_item(right_center, right_rotation, finger_thickness, finger_height, finger_length, color=(1.0, 1.0, 0.0, 1.0))
 
         self.addItem(left_finger)
         self.addItem(right_finger)

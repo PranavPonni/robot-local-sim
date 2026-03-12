@@ -182,10 +182,10 @@ class MainWindow(QMainWindow):
         vlayout.addWidget(self.speed_spin)
 
         self.gripper_slider = QSlider(Qt.Horizontal)
-        self.gripper_slider.setRange(0, 100)
-        self.gripper_slider.setValue(int(self.simulator.gripper_open * 1000))
-        self.gripper_value_label = QLabel(f"{self.simulator.gripper_open:.3f} m")
-        vlayout.addWidget(QLabel("Gripper opening"))
+        self.gripper_slider.setRange(0, 60)
+        self.gripper_slider.setValue(int(np.degrees(self.simulator.gripper_open)))
+        self.gripper_value_label = QLabel(f"{np.degrees(self.simulator.gripper_open):.0f}°")
+        vlayout.addWidget(QLabel("Gripper angle"))
         vlayout.addWidget(self.gripper_slider)
         vlayout.addWidget(self.gripper_value_label)
 
@@ -312,9 +312,10 @@ class MainWindow(QMainWindow):
         self._log("Replaying trajectory")
 
     def on_gripper_changed(self, value: int):
-        self.simulator.gripper_open = float(value) / 1000.0
-        self.gl_view.gripper_open = self.simulator.gripper_open
-        self.gripper_value_label.setText(f"{self.simulator.gripper_open:.3f} m")
+        angle_rad = np.radians(float(value))
+        self.simulator.gripper_open = angle_rad
+        self.gl_view.gripper_open = angle_rad
+        self.gripper_value_label.setText(f"{value}°")
 
     def on_save_trajectory(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save Trajectory", "trajectory.json", "JSON files (*.json)")

@@ -42,7 +42,7 @@ class Simulator:
         self.user_mode = "joint"  # or 'cartesian'
         self.motion_queue: List[np.ndarray] = []
         self.recording = False
-        self.gripper_open = 0.06  # meters (opening width)
+        self.gripper_open = np.radians(20.0)  # radians at joint 6
 
     def set_joint_target(self, target: np.ndarray) -> None:
         self.target_joints = self.robot.clamp_joints(target)
@@ -110,8 +110,8 @@ class Simulator:
         self.is_playing = False
         self.trajectory.clear()
 
-    def home(self) -> None:
-        self.set_joint_target(np.zeros(6, dtype=float))
+    def home(self):
+        self.set_joint_target(np.array([0.0, -0.2, 0.1, 0.0, 0.0, 0.0]))
 
     def play_trajectory(self, trajectory: Trajectory) -> None:
         if not trajectory.points:
