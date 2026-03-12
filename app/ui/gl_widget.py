@@ -81,28 +81,27 @@ class RobotGLView(gl.GLViewWidget):
         self.ee_marker = gl.GLScatterPlotItem(pos=ee, size=14, color=(1.0, 0.2, 0.2, 1.0))
         self.addItem(self.ee_marker)
 
-        # gripper open/close (fixed world orientation, two block fingers)
+        # gripper open/close, mounted on end-effector joint (pose[-1])
         ee_pos = poses[-1][:3, 3]
+        ee_rot = poses[-1][:3, :3]
         half_open = self.gripper_open * 0.5
         finger_length = 0.05
         finger_thickness = 0.006
         finger_height = 0.02
 
-        # Left and right fingers in local world X-axis
-        left_center = ee_pos + np.array([half_open + finger_thickness / 2.0, 0.0, -0.02])
-        right_center = ee_pos + np.array([-half_open - finger_thickness / 2.0, 0.0, -0.02])
+        base_offset = ee_rot @ np.array([0.0, 0.0, -0.02])
+        left_offset = ee_rot @ np.array([half_open + finger_thickness / 2.0, 0.0, 0.0])
+        right_offset = ee_rot @ np.array([-half_open - finger_thickness / 2.0, 0.0, 0.0])
 
-        finger_mesh = self.create_box_mesh(width=finger_thickness, height=finger_height, depth=finger_length)
+        left_center = ee_pos + base_offset + left_offset
+        right_center = ee_pos + base_offset + right_offset
 
-        left_finger = gl.GLMeshItem(meshdata=finger_mesh, smooth=True, color=(0.2, 0.2, 0.2, 1.0), shader='shaded', drawEdges=False)
-        left_finger.translate(float(left_center[0]), float(left_center[1]), float(left_center[2]))
+        left_finger = self.create_box_mesh_item(left_center, ee_rot, finger_thickness, finger_height, finger_length, color=(1.0, 1.0, 0.0, 1.0))
+        right_finger = self.create_box_mesh_item(right_center, ee_rot, finger_thickness, finger_height, finger_length, color=(1.0, 1.0, 0.0, 1.0))
+
         self.addItem(left_finger)
-        self.gripper_items.append(left_finger)
-
-        right_finger = gl.GLMeshItem(meshdata=finger_mesh, smooth=True, color=(0.2, 0.2, 0.2, 1.0), shader='shaded', drawEdges=False)
-        right_finger.translate(float(right_center[0]), float(right_center[1]), float(right_center[2]))
         self.addItem(right_finger)
-        self.gripper_items.append(right_finger)
+        self.gripper_items.extend([left_finger, right_finger])
 
 
     @staticmethod
@@ -138,4 +137,14 @@ class RobotGLView(gl.GLViewWidget):
             [0, 3, 7], [0, 7, 4],
         ], dtype=int)
         return gl.MeshData(vertexes=verts, faces=faces)
+
+    @staticmethod
+    def create_box_mesh_item(center: np.ndarray, rotation: np.ndarray, width: float, height: float, depth: float, color=(1.0, 1.0, 0.0, 1.0)) -> gl.GLMeshItem:
+        mesh = RobotGLView.create_box_mesh(width, height, depth)
+        # transform vertices into world using rotation and center
+        verts = mesh.vertexes.copy()
+        verts = verts @ rotation.T + center
+        mesh = gl.MeshData(vertexes=verts, faces=mesh.faces)
+        item = gl.GLMeshItem(meshdata=mesh, smooth=True, color=color, shader='shaded', drawEdges=False)
+        return item
 
