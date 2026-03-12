@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from app.ui.gl_widget import RobotGLView
 from app.robot.robot_model import Robot6DoF
 from app.simulation.simulator import Simulator
-from app.math3d.transform import euler_rpy_to_matrix, homogeneous_from_rt
+from app.math3d.transform import euler_rpy_to_matrix, homogeneous_from_rt, matrix_to_euler_rpy
 from app.scene.scene import Scene
 
 
@@ -45,6 +45,7 @@ class MainWindow(QMainWindow):
         self.scene = Scene()
 
         self.gl_view = RobotGLView()
+        self.gl_view.gripper_open = self.simulator.gripper_open
         self.info_text = QTextEdit(readOnly=True)
         self.status_label = QLabel("Ready")
 
@@ -172,18 +173,30 @@ class MainWindow(QMainWindow):
     def _make_settings_tab(self) -> QWidget:
         page = QWidget()
         vlayout = QVBoxLayout(page)
+
         self.speed_spin = QDoubleSpinBox()
         self.speed_spin.setRange(0.05, 5.0)
         self.speed_spin.setSingleStep(0.05)
         self.speed_spin.setValue(0.5)
         vlayout.addWidget(QLabel("Motion speed"))
         vlayout.addWidget(self.speed_spin)
+
+        self.gripper_slider = QSlider(Qt.Horizontal)
+        self.gripper_slider.setRange(0, 100)
+        self.gripper_slider.setValue(int(self.simulator.gripper_open * 1000))
+        self.gripper_value_label = QLabel(f"{self.simulator.gripper_open:.3f} m")
+        vlayout.addWidget(QLabel("Gripper opening"))
+        vlayout.addWidget(self.gripper_slider)
+        vlayout.addWidget(self.gripper_value_label)
+
         return page
 
     def _connect_signals(self):
         for idx, (slider, spin) in enumerate(zip(self.joint_sliders, self.joint_spinboxes)):
             slider.valueChanged.connect(lambda val, i=idx: self.on_joint_slider_changed(i, val))
             spin.valueChanged.connect(lambda val, i=idx: self.on_joint_spin_changed(i, val))
+
+        self.gripper_slider.valueChanged.connect(self.on_gripper_changed)
 
     def _update_ui_from_robot(self):
         for i, angle_rad in enumerate(self.robot.joints):
@@ -297,6 +310,11 @@ class MainWindow(QMainWindow):
             return
         self.simulator.play_trajectory(self.simulator.trajectory)
         self._log("Replaying trajectory")
+
+    def on_gripper_changed(self, value: int):
+        self.simulator.gripper_open = float(value) / 1000.0
+        self.gl_view.gripper_open = self.simulator.gripper_open
+        self.gripper_value_label.setText(f"{self.simulator.gripper_open:.3f} m")
 
     def on_save_trajectory(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save Trajectory", "trajectory.json", "JSON files (*.json)")

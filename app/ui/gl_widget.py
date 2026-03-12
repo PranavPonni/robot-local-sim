@@ -23,6 +23,7 @@ class RobotGLView(gl.GLViewWidget):
         self.link_items: list[gl.GLGraphicsItem] = []
         self.joint_items: list[gl.GLGraphicsItem] = []
         self.ee_marker: gl.GLScatterPlotItem | None = None
+        self.gripper_open = 0.06
 
     def update_robot(self, robot: Robot6DoF):
         poses = robot.get_link_poses()
@@ -39,36 +40,55 @@ class RobotGLView(gl.GLViewWidget):
 
         joints_positions = [pose[:3, 3] for pose in poses]
 
+        # thicker links as cylinders
         for i in range(6):
             p0 = joints_positions[i]
             p1 = joints_positions[i + 1]
-            line = gl.GLLinePlotItem(pos=np.vstack([p0, p1]), color=(0.6, 0.8, 1.0, 1.0), width=4.0, antialias=True)
-            self.addItem(line)
-            self.link_items.append(line)
+            dir_vec = p1 - p0
+            length = np.linalg.norm(dir_vec)
+            if length < 1e-5:
+                continue
+
+            axis = dir_vec / length
+            mesh = gl.MeshData.cylinder(rows=12, cols=24, radius=0.02, length=length)
+            item = gl.GLMeshItem(meshdata=mesh, smooth=True, color=(0.2, 0.7, 1.0, 1.0), shader='shaded', drawEdges=False)
+
+            # align cylinder z-axis to link direction
+            z = np.array([0.0, 0.0, 1.0])
+            dot = np.clip(np.dot(z, axis), -1.0, 1.0)
+            angle = float(np.degrees(np.arccos(dot)))
+            if angle > 1e-3:
+                rot_axis = np.cross(z, axis)
+                if np.linalg.norm(rot_axis) > 1e-6:
+                    item.rotate(angle, float(rot_axis[0]), float(rot_axis[1]), float(rot_axis[2]))
+
+            item.translate(float(p0[0]), float(p0[1]), float(p0[2]))
+            self.addItem(item)
+            self.link_items.append(item)
 
         # joint spheres
         joint_points = np.vstack(joints_positions)
-        self.joint_items = [gl.GLScatterPlotItem(pos=joint_points, size=9, color=(0.1, 0.7, 0.1, 0.9))]
-        for joint_item in self.joint_items:
-            self.addItem(joint_item)
+        joint_item = gl.GLScatterPlotItem(pos=joint_points, size=10, color=(0.05, 0.8, 0.0, 0.95))
+        self.joint_items.append(joint_item)
+        self.addItem(joint_item)
 
         # end-effector marker
         ee = np.array([poses[-1][:3, 3]])
         self.ee_marker = gl.GLScatterPlotItem(pos=ee, size=14, color=(1.0, 0.2, 0.2, 1.0))
         self.addItem(self.ee_marker)
 
-        # simple 2-finger gripper visualization at the end-effector
-        gt = poses[-1]
-        ee_pos = gt[:3, 3]
-        x_dir = gt[:3, 0] * 0.05
-        f1 = ee_pos + x_dir + np.array([0.0, 0.0, -0.01])
-        f2 = ee_pos - x_dir + np.array([0.0, 0.0, -0.01])
+        # gripper open/close (world-based orientation, no rotation with EE)
+        ee_pos = poses[-1][:3, 3]
+        half_open = self.gripper_open * 0.5
+        base = ee_pos + np.array([0.0, 0.0, -0.02])
+        p1 = base + np.array([half_open, 0.0, 0.0])
+        p2 = base - np.array([half_open, 0.0, 0.0])
 
-        grip1 = gl.GLLinePlotItem(pos=np.vstack([ee_pos, f1]), color=(1.0, 1.0, 0.0, 1.0), width=3.0, antialias=True)
-        grip2 = gl.GLLinePlotItem(pos=np.vstack([ee_pos, f2]), color=(1.0, 1.0, 0.0, 1.0), width=3.0, antialias=True)
-        self.addItem(grip1)
-        self.addItem(grip2)
-        self.link_items.extend([grip1, grip2])
+        f1 = gl.GLLinePlotItem(pos=np.vstack([base, p1]), color=(1.0, 0.9, 0.0, 1.0), width=5.0, antialias=True)
+        f2 = gl.GLLinePlotItem(pos=np.vstack([base, p2]), color=(1.0, 0.9, 0.0, 1.0), width=5.0, antialias=True)
+        self.addItem(f1)
+        self.addItem(f2)
+        self.link_items.extend([f1, f2])
 
     @staticmethod
     def _axis_to_rotation(axis: np.ndarray) -> np.ndarray:

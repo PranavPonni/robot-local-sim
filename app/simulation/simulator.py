@@ -42,6 +42,7 @@ class Simulator:
         self.user_mode = "joint"  # or 'cartesian'
         self.motion_queue: List[np.ndarray] = []
         self.recording = False
+        self.gripper_open = 0.06  # meters (opening width)
 
     def set_joint_target(self, target: np.ndarray) -> None:
         self.target_joints = self.robot.clamp_joints(target)
