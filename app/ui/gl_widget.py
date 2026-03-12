@@ -92,7 +92,7 @@ class RobotGLView(gl.GLViewWidget):
         left_center = ee_pos + np.array([half_open + finger_thickness / 2.0, 0.0, -0.02])
         right_center = ee_pos + np.array([-half_open - finger_thickness / 2.0, 0.0, -0.02])
 
-        finger_mesh = gl.MeshData.cube(width=finger_thickness, height=finger_height, depth=finger_length)
+        finger_mesh = self.create_box_mesh(width=finger_thickness, height=finger_height, depth=finger_length)
 
         left_finger = gl.GLMeshItem(meshdata=finger_mesh, smooth=True, color=(0.2, 0.2, 0.2, 1.0), shader='shaded', drawEdges=False)
         left_finger.translate(float(left_center[0]), float(left_center[1]), float(left_center[2]))
@@ -119,3 +119,23 @@ class RobotGLView(gl.GLViewWidget):
         kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]], dtype=float)
         rot = np.eye(3) + kmat + kmat @ kmat * ((1.0 / (1.0 + c)))
         return rot
+
+    @staticmethod
+    def create_box_mesh(width: float, height: float, depth: float) -> gl.MeshData:
+        hx = width / 2
+        hy = height / 2
+        hz = depth / 2
+        verts = np.array([
+            [-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz],
+            [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz],
+        ], dtype=float)
+        faces = np.array([
+            [0, 1, 2], [0, 2, 3],
+            [4, 5, 6], [4, 6, 7],
+            [0, 1, 5], [0, 5, 4],
+            [2, 3, 7], [2, 7, 6],
+            [1, 2, 6], [1, 6, 5],
+            [0, 3, 7], [0, 7, 4],
+        ], dtype=int)
+        return gl.MeshData(vertexes=verts, faces=faces)
+
