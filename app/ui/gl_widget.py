@@ -142,9 +142,10 @@ class RobotGLView(gl.GLViewWidget):
     def create_box_mesh_item(center: np.ndarray, rotation: np.ndarray, width: float, height: float, depth: float, color=(1.0, 1.0, 0.0, 1.0)) -> gl.GLMeshItem:
         mesh = RobotGLView.create_box_mesh(width, height, depth)
         # transform vertices into world using rotation and center
-        verts = mesh.vertexes.copy()
+        verts = mesh.vertexes().copy()
         verts = verts @ rotation.T + center
-        mesh = gl.MeshData(vertexes=verts, faces=mesh.faces)
-        item = gl.GLMeshItem(meshdata=mesh, smooth=True, color=color, shader='shaded', drawEdges=False)
+        faces = mesh.faces().copy()
+        mesh_world = gl.MeshData(vertexes=verts, faces=faces)
+        item = gl.GLMeshItem(meshdata=mesh_world, smooth=True, color=color, shader='shaded', drawEdges=False)
         return item
 
