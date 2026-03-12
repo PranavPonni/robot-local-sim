@@ -1,202 +1,196 @@
-console.log('app.js loaded');
+console.log('app.js loaded (non-module)');
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x101826);
-
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / (window.innerHeight * 0.75), 0.1, 1000);
-camera.position.set(2.5, 2.0, 4.5);
-camera.lookAt(0, 1.0, 0);
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setClearColor(0x101826);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-console.log('Camera setup:', camera.position, 'aspect', camera.aspect);
-
-const dom = document.getElementById('renderer');
-if (!dom) {
-  throw new Error('Renderer container element #renderer not found');
+const container = document.getElementById('renderer');
+if (!container) {
+  throw new Error('renderer container missing');
 }
 
-const currentWidth = dom.clientWidth || window.innerWidth;
-const currentHeight = dom.clientHeight || window.innerHeight * 0.7;
-renderer.setSize(currentWidth, currentHeight);
-renderer.domElement.style.display = 'block';
-renderer.domElement.style.margin = '0 auto';
-dom.appendChild(renderer.domElement);
-console.log('Renderer size', currentWidth, currentHeight);
+function initScene() {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x101826);
 
-const grid = new THREE.GridHelper(12, 24, 0x555a80, 0x2d3f62);
-scene.add(grid);
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / (window.innerHeight * 0.75), 0.1, 1000);
+  camera.position.set(4.5, 3.2, 7.2);
 
-const axes = new THREE.AxesHelper(1.5);
-scene.add(axes);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight * 0.75);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-const ambientLight = new THREE.AmbientLight(0xb0c9ee, 0.6);
-scene.add(ambientLight);
+  container.innerHTML = '';
+  container.appendChild(renderer.domElement);
 
-const light = new THREE.DirectionalLight(0xffffff, 1.0);
-light.position.set(5, 8, 7);
-light.castShadow = true;
-scene.add(light);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+  controls.minDistance = 2;
+  controls.maxDistance = 20;
+  controls.target.set(0, 1.2, 0);
 
-const robot = new THREE.Object3D();
-robot.position.y = 0.1;
-scene.add(robot);
+  scene.add(new THREE.AxesHelper(2.5));
+  scene.add(new THREE.GridHelper(14, 28, 0x2b3f64, 0x344d70));
 
-// Base
-const base = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.35, 0.35, 0.1, 64),
-  new THREE.MeshStandardMaterial({ color: 0x2f3b61, roughness: 0.35, metalness: 0.45 })
-);
-base.position.y = 0.05;
-base.receiveShadow = true;
-scene.add(base);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.15);
+  dir.position.set(5, 7, 5);
+  dir.castShadow = true;
+  scene.add(dir);
 
-function createLink(length, radius, color) {
-  const geometry = new THREE.CylinderGeometry(radius, radius, length, 32);
-  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.28, metalness: 0.53 });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mesh.rotation.x = Math.PI / 2;
-  return mesh;
-}
-
-const ur5 = [
-  { name: 'shoulder_pan_joint', axis: 'y', len: 0.12, color: 0x48a3ea },
-  { name: 'shoulder_lift_joint', axis: 'x', len: 0.42, color: 0x65c285 },
-  { name: 'elbow_joint', axis: 'x', len: 0.39, color: 0xf1a257 },
-  { name: 'wrist_1_joint', axis: 'y', len: 0.11, color: 0xee5a6f },
-  { name: 'wrist_2_joint', axis: 'x', len: 0.095, color: 0x8c62cf },
-  { name: 'wrist_3_joint', axis: 'y', len: 0.082, color: 0x44b7df }
-];
-
-const joints = [];
-let parent = robot;
-
-ur5.forEach((jointDef) => {
-  const pivot = new THREE.Object3D();
-  parent.add(pivot);
-
-  const link = createLink(jointDef.len * 4.2, 0.1, jointDef.color);
-  link.position.set(0, jointDef.len * 2.1, 0);
-  pivot.add(link);
-
-  const socket = new THREE.Mesh(
-    new THREE.SphereGeometry(0.08, 16, 16),
-    new THREE.MeshStandardMaterial({ color: 0xeeeeee, emissive: 0x111111, roughness: 0.3, metalness: 0.45 })
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.4, 0.4, 0.12, 64),
+    new THREE.MeshStandardMaterial({ color: 0x2f3b61, roughness: 0.35, metalness: 0.45 })
   );
-  socket.position.set(0, jointDef.len * 4.2, 0);
-  pivot.add(socket);
+  base.position.y = 0.06;
+  base.receiveShadow = true;
+  scene.add(base);
 
-  joints.push({ pivot, axis: jointDef.axis, name: jointDef.name, angle: 0 });
+  const jointSpec = [
+    { name: 'shoulder_pan_joint', axis: 'y', len: 0.12, color: 0x4f8efa },
+    { name: 'shoulder_lift_joint', axis: 'x', len: 0.42, color: 0x5fcf8a },
+    { name: 'elbow_joint', axis: 'x', len: 0.39, color: 0xf6ae4d },
+    { name: 'wrist_1_joint', axis: 'y', len: 0.11, color: 0xef6eb2 },
+    { name: 'wrist_2_joint', axis: 'x', len: 0.095, color: 0x9064d1 },
+    { name: 'wrist_3_joint', axis: 'y', len: 0.082, color: 0x57c4ef }
+  ];
 
-  const next = new THREE.Object3D();
-  next.position.set(0, jointDef.len * 4.2, 0);
-  pivot.add(next);
-  parent = next;
-});
+  const joints = [];
+  let parent = base;
 
-// debug cube
-const debugCube = new THREE.Mesh(
-  new THREE.BoxGeometry(0.2, 0.2, 0.2),
-  new THREE.MeshStandardMaterial({ color: 0xff9400, emissive: 0x441700, metalness: 0.45, roughness: 0.2 })
-);
-debugCube.position.set(0.7, 0.8, 0);
-scene.add(debugCube);
+  jointSpec.forEach((joint, i) => {
+    const pivot = new THREE.Object3D();
+    parent.add(pivot);
+    pivot.position.y = i === 0 ? 0.06 : jointSpec[i - 1].len * 4.2;
 
-const controlsEl = document.getElementById('controls');
-controlsEl.innerHTML = '';
+    const link = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.08, joint.len * 4.2, 24),
+      new THREE.MeshStandardMaterial({ color: joint.color, roughness: 0.3, metalness: 0.5 })
+    );
+    link.position.y = joint.len * 2.1;
+    link.rotation.x = Math.PI / 2;
+    link.castShadow = true;
+    link.receiveShadow = true;
+    pivot.add(link);
 
-const state = new Array(6).fill(0);
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.09, 16, 16),
+      new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.25, metalness: 0.6 })
+    );
+    marker.position.y = joint.len * 4.2;
+    pivot.add(marker);
 
-ur5.forEach((jointDef, index) => {
-  const block = document.createElement('div');
-  block.className = 'control-block';
+    joints.push({ pivot, axis: joint.axis, value: 0, name: joint.name });
 
-  const label = document.createElement('label');
-  label.innerText = `${jointDef.name} (${jointDef.axis.toUpperCase()})`;
-  block.appendChild(label);
+    const next = new THREE.Object3D();
+    next.position.y = joint.len * 4.2;
+    pivot.add(next);
+    parent = next;
+  });
 
-  const row = document.createElement('div');
-  row.style.display = 'flex';
-  row.style.alignItems = 'center';
-  row.style.gap = '0.3rem';
+  const debugCube = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2, 0.2, 0.2),
+    new THREE.MeshStandardMaterial({ color: 0xff8000, emissive: 0x221100, roughness: 0.35, metalness: 0.45 })
+  );
+  debugCube.position.set(1.2, 1.15, 0.3);
+  scene.add(debugCube);
 
-  const minus = document.createElement('button');
-  minus.innerText = '-';
-  minus.style.width = '32px';
-  minus.style.height = '32px';
+  const controlsDiv = document.getElementById('controls');
+  controlsDiv.innerHTML = '';
 
-  const plus = document.createElement('button');
-  plus.innerText = '+';
-  plus.style.width = '32px';
-  plus.style.height = '32px';
+  joints.forEach((joint, idx) => {
+    const card = document.createElement('div');
+    card.className = 'control-block';
+    const title = document.createElement('label');
+    title.innerText = joint.name;
 
-  const slider = document.createElement('input');
-  slider.type = 'range';
-  slider.min = -180;
-  slider.max = 180;
-  slider.step = 1;
-  slider.value = 0;
-  slider.style.flex = '1';
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.gap = '0.3rem';
 
-  const value = document.createElement('div');
-  value.className = 'value';
-  value.innerText = '0°';
+    const minus = document.createElement('button');
+    minus.innerText = '-';
+    minus.style.width = '32px';
+    minus.style.height = '32px';
 
-  const setJointAngle = (angle) => {
-    state[index] = angle;
-    value.innerText = `${angle.toFixed(0)}°`;
-    slider.value = angle;
-    joints.forEach((p, j) => {
-      const rad = THREE.MathUtils.degToRad(state[j]);
-      p.pivot.rotation.set(0, 0, 0);
-      if (p.axis === 'x') p.pivot.rotation.x = rad;
-      if (p.axis === 'y') p.pivot.rotation.y = rad;
-      if (p.axis === 'z') p.pivot.rotation.z = rad;
-    });
-  };
+    const plus = document.createElement('button');
+    plus.innerText = '+';
+    plus.style.width = '32px';
+    plus.style.height = '32px';
 
-  minus.onclick = () => setJointAngle(Math.max(-180, state[index] - 5));
-  plus.onclick = () => setJointAngle(Math.min(180, state[index] + 5));
-  slider.oninput = (e) => setJointAngle(Number(e.target.value));
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = -180;
+    slider.max = 180;
+    slider.step = 1;
+    slider.value = 0;
+    slider.style.flex = '1';
 
-  row.appendChild(minus);
-  row.appendChild(slider);
-  row.appendChild(plus);
+    const value = document.createElement('div');
+    value.className = 'value';
+    value.innerText = '0°';
 
-  block.appendChild(row);
-  block.appendChild(value);
-  controlsEl.appendChild(block);
-});
+    const setJoint = (valueAngle) => {
+      joint.value = valueAngle;
+      value.innerText = `${valueAngle.toFixed(0)}°`;
+      slider.value = valueAngle;
+      joints.forEach((j) => {
+        const rad = THREE.MathUtils.degToRad(j.value);
+        j.pivot.rotation.set(0, 0, 0);
+        if (j.axis === 'x') j.pivot.rotation.x = rad;
+        if (j.axis === 'y') j.pivot.rotation.y = rad;
+        if (j.axis === 'z') j.pivot.rotation.z = rad;
+      });
+    };
 
-function onResize() {
-  const width = dom.clientWidth || window.innerWidth;
-  const height = dom.clientHeight || window.innerHeight * 0.7;
-  renderer.setSize(width, height);
-  camera.aspect = width / height;
-  camera.updateProjectionMatrix();
-  console.log('onResize', width, height, 'aspect', camera.aspect);
+    minus.onclick = () => setJoint(Math.max(-180, joint.value - 5));
+    plus.onclick = () => setJoint(Math.min(180, joint.value + 5));
+    slider.oninput = (e) => setJoint(Number(e.target.value));
+
+    row.appendChild(minus);
+    row.appendChild(slider);
+    row.appendChild(plus);
+
+    card.appendChild(title);
+    card.appendChild(row);
+    card.appendChild(value);
+    controlsDiv.appendChild(card);
+  });
+
+  function resize() {
+    const w = window.innerWidth;
+    const h = Math.max(400, window.innerHeight * 0.75);
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+
+  let t = 0;
+  function animate() {
+    t += 0.004;
+    camera.position.x = Math.cos(t) * 7.0;
+    camera.position.z = Math.sin(t) * 7.0;
+    camera.lookAt(0, 1.2, 0);
+
+    debugCube.rotation.x += 0.012;
+    debugCube.rotation.y += 0.01;
+
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+  }
+
+  console.log('Three.js version', THREE.REVISION);
+  animate();
 }
-window.addEventListener('resize', onResize);
-setTimeout(onResize, 100); // ensure camera aspect and renderer size update when all styles are applied
 
-let spin = 0;
-function animate() {
-  spin += 0.003;
-  camera.position.x = Math.cos(spin) * 4.4;
-  camera.position.z = Math.sin(spin) * 4.4;
-  camera.lookAt(0, 1.1, 0);
-
-  debugCube.rotation.x += 0.008;
-  debugCube.rotation.y += 0.01;
-
-  requestAnimationFrame(animate);
-  renderer.render(scene, camera);
+if (typeof THREE === 'undefined') {
+  container.innerHTML = '<div style="color:#fff;padding:20px">Three.js failed to load. Check network and include script from CDN.</div>';
+} else if (!window.WebGLRenderingContext) {
+  container.innerHTML = '<div style="color:#fff;padding:20px">WebGL is not available in this browser.</div>';
+} else {
+  initScene();
 }
-
-console.log('Starting animation loop');
-animate();
