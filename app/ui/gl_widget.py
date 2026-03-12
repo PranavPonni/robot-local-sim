@@ -46,10 +46,29 @@ class RobotGLView(gl.GLViewWidget):
             self.addItem(line)
             self.link_items.append(line)
 
-        # only links + one end-effector marker
+        # joint spheres
+        joint_points = np.vstack(joints_positions)
+        self.joint_items = [gl.GLScatterPlotItem(pos=joint_points, size=9, color=(0.1, 0.7, 0.1, 0.9))]
+        for joint_item in self.joint_items:
+            self.addItem(joint_item)
+
+        # end-effector marker
         ee = np.array([poses[-1][:3, 3]])
         self.ee_marker = gl.GLScatterPlotItem(pos=ee, size=14, color=(1.0, 0.2, 0.2, 1.0))
         self.addItem(self.ee_marker)
+
+        # simple 2-finger gripper visualization at the end-effector
+        gt = poses[-1]
+        ee_pos = gt[:3, 3]
+        x_dir = gt[:3, 0] * 0.05
+        f1 = ee_pos + x_dir + np.array([0.0, 0.0, -0.01])
+        f2 = ee_pos - x_dir + np.array([0.0, 0.0, -0.01])
+
+        grip1 = gl.GLLinePlotItem(pos=np.vstack([ee_pos, f1]), color=(1.0, 1.0, 0.0, 1.0), width=3.0, antialias=True)
+        grip2 = gl.GLLinePlotItem(pos=np.vstack([ee_pos, f2]), color=(1.0, 1.0, 0.0, 1.0), width=3.0, antialias=True)
+        self.addItem(grip1)
+        self.addItem(grip2)
+        self.link_items.extend([grip1, grip2])
 
     @staticmethod
     def _axis_to_rotation(axis: np.ndarray) -> np.ndarray:

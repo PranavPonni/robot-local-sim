@@ -59,6 +59,9 @@ class Simulator:
         self.is_playing = success
 
     def step(self, dt: float) -> None:
+        if self.recording:
+            self.trajectory.record(self.robot.joints)
+
         if self.motion_queue:
             self._process_motion_queue(dt)
             return
@@ -110,9 +113,16 @@ class Simulator:
         self.set_joint_target(np.zeros(6, dtype=float))
 
     def play_trajectory(self, trajectory: Trajectory) -> None:
-        self.motion_queue = [t.copy() for t in trajectory.points]
+        if not trajectory.points:
+            self.is_playing = False
+            return
+
+        self.motion_queue = [self.robot.clamp_joints(np.array(t, dtype=float)) for t in trajectory.points]
         self.target_joints = None
         self.is_playing = True
+
+        if self.motion_queue:
+            self.target_joints = self.motion_queue.pop(0)
 
     def start_recording(self) -> None:
         self.recording = True
