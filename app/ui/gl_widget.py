@@ -23,6 +23,7 @@ class RobotGLView(gl.GLViewWidget):
         self.link_items: list[gl.GLGraphicsItem] = []
         self.joint_items: list[gl.GLGraphicsItem] = []
         self.ee_marker: gl.GLScatterPlotItem | None = None
+        self.gripper_items: list[gl.GLGraphicsItem] = []
         self.gripper_open = 0.06
 
     def update_robot(self, robot: Robot6DoF):
@@ -32,11 +33,14 @@ class RobotGLView(gl.GLViewWidget):
             self.removeItem(item)
         for item in self.joint_items:
             self.removeItem(item)
+        for item in self.gripper_items:
+            self.removeItem(item)
         if self.ee_marker:
             self.removeItem(self.ee_marker)
 
         self.link_items.clear()
         self.joint_items.clear()
+        self.gripper_items.clear()
 
         joints_positions = [pose[:3, 3] for pose in poses]
 
@@ -77,18 +81,29 @@ class RobotGLView(gl.GLViewWidget):
         self.ee_marker = gl.GLScatterPlotItem(pos=ee, size=14, color=(1.0, 0.2, 0.2, 1.0))
         self.addItem(self.ee_marker)
 
-        # gripper open/close (world-based orientation, no rotation with EE)
+        # gripper open/close (fixed world orientation, two block fingers)
         ee_pos = poses[-1][:3, 3]
         half_open = self.gripper_open * 0.5
-        base = ee_pos + np.array([0.0, 0.0, -0.02])
-        p1 = base + np.array([half_open, 0.0, 0.0])
-        p2 = base - np.array([half_open, 0.0, 0.0])
+        finger_length = 0.05
+        finger_thickness = 0.006
+        finger_height = 0.02
 
-        f1 = gl.GLLinePlotItem(pos=np.vstack([base, p1]), color=(1.0, 0.9, 0.0, 1.0), width=5.0, antialias=True)
-        f2 = gl.GLLinePlotItem(pos=np.vstack([base, p2]), color=(1.0, 0.9, 0.0, 1.0), width=5.0, antialias=True)
-        self.addItem(f1)
-        self.addItem(f2)
-        self.link_items.extend([f1, f2])
+        # Left and right fingers in local world X-axis
+        left_center = ee_pos + np.array([half_open + finger_thickness / 2.0, 0.0, -0.02])
+        right_center = ee_pos + np.array([-half_open - finger_thickness / 2.0, 0.0, -0.02])
+
+        finger_mesh = gl.MeshData.cube(width=finger_thickness, height=finger_height, depth=finger_length)
+
+        left_finger = gl.GLMeshItem(meshdata=finger_mesh, smooth=True, color=(0.2, 0.2, 0.2, 1.0), shader='shaded', drawEdges=False)
+        left_finger.translate(float(left_center[0]), float(left_center[1]), float(left_center[2]))
+        self.addItem(left_finger)
+        self.gripper_items.append(left_finger)
+
+        right_finger = gl.GLMeshItem(meshdata=finger_mesh, smooth=True, color=(0.2, 0.2, 0.2, 1.0), shader='shaded', drawEdges=False)
+        right_finger.translate(float(right_center[0]), float(right_center[1]), float(right_center[2]))
+        self.addItem(right_finger)
+        self.gripper_items.append(right_finger)
+
 
     @staticmethod
     def _axis_to_rotation(axis: np.ndarray) -> np.ndarray:
