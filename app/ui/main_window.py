@@ -32,6 +32,14 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("6-DOF Robot Arm Simulator")
+        self.setStyleSheet("""
+            QMainWindow { background-color: #232323; color: #eee; }
+            QLabel, QGroupBox, QPushButton, QTabWidget, QTextEdit { color: #eee; font-size: 12px;}
+            QPushButton { background: #007acc; border-radius: 6px; padding: 6px; }
+            QPushButton:hover { background: #3399ff; }
+            QTabWidget::pane { border: 1px solid #444; background: #292929; }
+            QLineEdit, QDoubleSpinBox, QSlider { background: #323232; color: #fff; }
+        """)
         self.robot = Robot6DoF.default()
         self.simulator = Simulator(self.robot)
         self.scene = Scene()

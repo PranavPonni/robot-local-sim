@@ -27,7 +27,7 @@ pip install -r requirements.txt
 ## Run
 
 ```bash
-python app/main.py
+python -m app.main
 ```
 
 ### Demo script
@@ -35,6 +35,15 @@ python app/main.py
 ```bash
 python demo.py
 ```
+
+### Browser-based local host mode (optional)
+
+```bash
+pip install -r requirements.txt
+uvicorn app.server:app --host 0.0.0.0 --port 3000
+```
+
+Open http://localhost:3000 in your browser to access a lightweight web dashboard for joint/cartesian control, status display, and actions.
 
 ## Features
 
