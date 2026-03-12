@@ -3,7 +3,7 @@ console.log('app.js loaded');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x101826);
 
-const camera = new THREE.PerspectiveCamera(45, 1.0, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / (window.innerHeight * 0.75), 0.1, 1000);
 camera.position.set(2.5, 2.0, 4.5);
 camera.lookAt(0, 1.0, 0);
 
@@ -12,15 +12,20 @@ renderer.setClearColor(0x101826);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+console.log('Camera setup:', camera.position, 'aspect', camera.aspect);
+
 const dom = document.getElementById('renderer');
 if (!dom) {
   throw new Error('Renderer container element #renderer not found');
 }
 
-renderer.setSize(dom.clientWidth || window.innerWidth, dom.clientHeight || window.innerHeight * 0.7);
+const currentWidth = dom.clientWidth || window.innerWidth;
+const currentHeight = dom.clientHeight || window.innerHeight * 0.7;
+renderer.setSize(currentWidth, currentHeight);
 renderer.domElement.style.display = 'block';
 renderer.domElement.style.margin = '0 auto';
 dom.appendChild(renderer.domElement);
+console.log('Renderer size', currentWidth, currentHeight);
 
 const grid = new THREE.GridHelper(12, 24, 0x555a80, 0x2d3f62);
 scene.add(grid);
@@ -174,8 +179,10 @@ function onResize() {
   renderer.setSize(width, height);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+  console.log('onResize', width, height, 'aspect', camera.aspect);
 }
 window.addEventListener('resize', onResize);
+setTimeout(onResize, 100); // ensure camera aspect and renderer size update when all styles are applied
 
 let spin = 0;
 function animate() {
