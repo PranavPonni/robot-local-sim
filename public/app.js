@@ -1,8 +1,14 @@
-console.log('app.js loaded (non-module)');
+import * as THREE from '/modules/three/build/three.module.js';
+import { OrbitControls } from '/modules/three/examples/jsm/controls/OrbitControls.js';
 
 const container = document.getElementById('renderer');
 if (!container) {
   throw new Error('renderer container missing');
+}
+
+if (!window.WebGLRenderingContext) {
+  container.innerHTML = '<div style="color:#fff;padding:20px">WebGL is not available in this browser.</div>';
+  throw new Error('WebGL unsupported');
 }
 
 function initScene() {
@@ -21,7 +27,7 @@ function initScene() {
   container.innerHTML = '';
   container.appendChild(renderer.domElement);
 
-  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.minDistance = 2;
@@ -187,10 +193,4 @@ function initScene() {
   animate();
 }
 
-if (typeof THREE === 'undefined') {
-  container.innerHTML = '<div style="color:#fff;padding:20px">Three.js failed to load. Check network and include script from CDN.</div>';
-} else if (!window.WebGLRenderingContext) {
-  container.innerHTML = '<div style="color:#fff;padding:20px">WebGL is not available in this browser.</div>';
-} else {
-  initScene();
-}
+initScene();

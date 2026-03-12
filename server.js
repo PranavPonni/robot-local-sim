@@ -4,6 +4,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/modules', express.static(path.join(__dirname, 'node_modules')));
 
 app.get(['/', '/robot', '/simulator'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
