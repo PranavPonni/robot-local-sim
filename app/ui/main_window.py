@@ -54,6 +54,8 @@ class MainWindow(QMainWindow):
         self.joint_spinboxes: list[QDoubleSpinBox] = []
         self.cartesian_spins = {}
         self._max_gripper_open = 0.08  # meters
+        self.pick_state: dict | None = None
+        self.carrying_cube_name: str | None = None
         
         # Initialize cartesian spinboxes for Solve IK function
         for name in ["x", "y", "z", "roll", "pitch", "yaw"]:
@@ -214,10 +216,10 @@ class MainWindow(QMainWindow):
         vlayout.addWidget(self.speed_spin)
 
         self.gripper_slider = QSlider(Qt.Horizontal)
-        self.gripper_slider.setRange(0, 60)
-        self.gripper_slider.setValue(int(np.degrees(self.simulator.gripper_open)))
-        self.gripper_value_label = QLabel(f"{np.degrees(self.simulator.gripper_open):.0f}°")
-        vlayout.addWidget(QLabel("Gripper angle"))
+        self.gripper_slider.setRange(0, int(self._max_gripper_open * 1000))
+        self.gripper_slider.setValue(int(self.simulator.gripper_open * 1000))
+        self.gripper_value_label = QLabel(f"{self.simulator.gripper_open:.3f} m")
+        vlayout.addWidget(QLabel("Gripper opening"))
         vlayout.addWidget(self.gripper_slider)
         vlayout.addWidget(self.gripper_value_label)
 
@@ -270,6 +272,7 @@ class MainWindow(QMainWindow):
     def _tick(self):
         self.simulator.interp_speed = self.speed_spin.value()
         self.simulator.step(0.03)
+        self._update_pick_sequence()
         self.gl_view.update_robot(self.robot)
         self.gl_view.update_scene(self.scene)
         self._update_ui_from_robot()
@@ -307,7 +310,7 @@ class MainWindow(QMainWindow):
 
     def on_home(self):
         self.simulator.home()
-        self._log("🏠 Moving to home position [0.0, 0.0, 1.62, 0.0, 1.5, 0.0]")
+        self._log("🏠 Moving to home position [0.0, 0.0, 1.62, 0.0, 1.5, 0.5]")
 
     def on_reset(self):
         self.simulator.reset()
@@ -392,9 +395,20 @@ class MainWindow(QMainWindow):
         self._log("Replaying trajectory")
 
     def on_gripper_changed(self, value: int):
-        self.simulator.gripper_open = float(value) / 1000.0
-        self.gl_view.gripper_open = self.simulator.gripper_open
-        self.gripper_value_label.setText(f"{self.simulator.gripper_open:.3f} m")
+        opening = float(value) / 1000.0
+        self.simulator.gripper_open = opening
+        self.gl_view.gripper_open = opening
+        self.gripper_value_label.setText(f"{opening:.3f} m")
+        q6 = self._open_to_joint6_angle(opening)
+        self.robot.joints[5] = q6
+
+        deg = np.degrees(q6)
+        self.joint_sliders[5].blockSignals(True)
+        self.joint_spinboxes[5].blockSignals(True)
+        self.joint_sliders[5].setValue(int(deg))
+        self.joint_spinboxes[5].setValue(float(deg))
+        self.joint_sliders[5].blockSignals(False)
+        self.joint_spinboxes[5].blockSignals(False)
 
     def on_save_trajectory(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save Trajectory", "trajectory.json", "JSON files (*.json)")
@@ -426,6 +440,8 @@ class MainWindow(QMainWindow):
 
     def on_clear_scene(self):
         self.scene.clear()
+        self.pick_state = None
+        self.carrying_cube_name = None
         self._log("Cleared scene objects")
 
     def on_pick_cube_ik(self):
@@ -448,9 +464,9 @@ class MainWindow(QMainWindow):
         self.cartesian_spins["y"].blockSignals(False)
         self.cartesian_spins["z"].blockSignals(False)
         
-        # Offset the position slightly above the cube for picking
-        # (add some Z height to approach from above)
-        target_pos = cube_pos + np.array([0.0, 0.0, 0.08])
+        # Approach above the top of cube and then pick/lift in tick callback.
+        approach_height = max(0.05, float(last_cube.size) + 0.03)
+        target_pos = cube_pos + np.array([0.0, 0.0, approach_height])
         
         # Create target pose (identity rotation, target position)
         target_pose = homogeneous_from_rt(np.eye(3), target_pos)
@@ -458,7 +474,8 @@ class MainWindow(QMainWindow):
         # Log the attempt
         self._log(f"🎯 Solving IK to pick cube at ({cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f})")
         
-        # Solve IK
+        # Start staged pick sequence
+        self.pick_state = {"cube": last_cube.name, "stage": "approach", "lift": 0.12}
         self.simulator.set_cartesian_target(target_pose)
         
         # Check if motion started
@@ -482,6 +499,47 @@ class MainWindow(QMainWindow):
 
     def _log(self, message: str):
         self.info_text.append(message)
+
+    def _get_scene_object(self, name: str):
+        for obj in self.scene.objects:
+            if obj.name == name:
+                return obj
+        return None
+
+    def _update_pick_sequence(self):
+        # Keep carried cube attached below end-effector.
+        if self.carrying_cube_name:
+            obj = self._get_scene_object(self.carrying_cube_name)
+            if obj is not None:
+                ee_pos = self.robot.forward_kinematics()[:3, 3]
+                obj.pose[:3, 3] = ee_pos + np.array([0.0, 0.0, -0.06])
+
+        if not self.pick_state:
+            return
+
+        if self.simulator.is_playing:
+            return
+
+        cube_name = self.pick_state["cube"]
+        stage = self.pick_state["stage"]
+
+        if stage == "approach":
+            # Close gripper and attach cube.
+            self.simulator.gripper_open = 0.01
+            self.gl_view.gripper_open = 0.01
+            self.carrying_cube_name = cube_name
+
+            fk = self.robot.forward_kinematics()
+            lift_target = fk[:3, 3] + np.array([0.0, 0.0, float(self.pick_state["lift"])])
+            lift_pose = homogeneous_from_rt(np.eye(3), lift_target)
+            self.pick_state["stage"] = "lift"
+            self.simulator.set_cartesian_target(lift_pose)
+            self._log("🧲 Cube grasped, lifting...")
+            return
+
+        if stage == "lift":
+            self.pick_state = None
+            self._log("✅ Pick complete")
 
 
 from app.math3d.transform import matrix_to_euler_rpy

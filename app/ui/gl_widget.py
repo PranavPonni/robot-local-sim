@@ -55,7 +55,7 @@ class RobotGLView(gl.GLViewWidget):
                 continue
 
             axis = dir_vec / length
-            mesh = gl.MeshData.cylinder(rows=12, cols=24, radius=[0.02, 0.02], length=length)
+            mesh = self.create_capped_cylinder_mesh(radius=0.02, length=length, segments=24)
             item = gl.GLMeshItem(meshdata=mesh, smooth=True, color=(0.2, 0.7, 1.0, 1.0), shader='shaded', drawEdges=False)
 
             # align cylinder z-axis to link direction
@@ -67,8 +67,7 @@ class RobotGLView(gl.GLViewWidget):
                 if np.linalg.norm(rot_axis) > 1e-6:
                     item.rotate(angle, float(rot_axis[0]), float(rot_axis[1]), float(rot_axis[2]))
 
-            mid = (p0 + p1) / 2.0
-            item.translate(float(mid[0]), float(mid[1]), float(mid[2]))
+            item.translate(float(p0[0]), float(p0[1]), float(p0[2]))
             self.addItem(item)
             self.link_items.append(item)
 
@@ -83,9 +82,9 @@ class RobotGLView(gl.GLViewWidget):
         self.ee_marker = gl.GLScatterPlotItem(pos=ee, size=14, color=(1.0, 0.2, 0.2, 1.0))
         self.addItem(self.ee_marker)
 
-        # gripper open/close, mounted on end-effector joint (pose[-1])
+        # gripper open/close (sideways)
         ee_pos = poses[-1][:3, 3]
-        ee_rot = poses[-1][:3, :3]
+        half_open = self.gripper_open * 0.5
         finger_length = 0.05
         finger_thickness = 0.006
         finger_height = 0.02
@@ -94,17 +93,17 @@ class RobotGLView(gl.GLViewWidget):
         left_center = ee_pos + np.array([half_open + finger_thickness / 2.0, 0.0, -0.02])
         right_center = ee_pos + np.array([-half_open - finger_thickness / 2.0, 0.0, -0.02])
 
-        finger_mesh = gl.MeshData.cube(width=finger_thickness, height=finger_height, depth=finger_length)
+        finger_mesh = self.create_box_mesh(width=finger_thickness, height=finger_height, depth=finger_length)
 
-        left_finger = gl.GLMeshItem(meshdata=finger_mesh, smooth=True, color=(0.2, 0.2, 0.2, 1.0), shader='shaded', drawEdges=False)
+        left_finger = gl.GLMeshItem(meshdata=finger_mesh, smooth=True, color=(1.0, 1.0, 0.0, 1.0), shader='shaded', drawEdges=False)
         left_finger.translate(float(left_center[0]), float(left_center[1]), float(left_center[2]))
         self.addItem(left_finger)
         self.gripper_items.append(left_finger)
 
-        right_finger = gl.GLMeshItem(meshdata=finger_mesh, smooth=True, color=(0.2, 0.2, 0.2, 1.0), shader='shaded', drawEdges=False)
+        right_finger = gl.GLMeshItem(meshdata=finger_mesh, smooth=True, color=(1.0, 1.0, 0.0, 1.0), shader='shaded', drawEdges=False)
         right_finger.translate(float(right_center[0]), float(right_center[1]), float(right_center[2]))
         self.addItem(right_finger)
-        self.gripper_items.extend([left_finger, right_finger])
+        self.gripper_items.append(right_finger)
 
 
     @staticmethod
@@ -121,3 +120,69 @@ class RobotGLView(gl.GLViewWidget):
         kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]], dtype=float)
         rot = np.eye(3) + kmat + kmat @ kmat * ((1.0 / (1.0 + c)))
         return rot
+
+    @staticmethod
+    def create_box_mesh(width: float, height: float, depth: float) -> gl.MeshData:
+        hx = width / 2.0
+        hy = height / 2.0
+        hz = depth / 2.0
+        verts = np.array([
+            [-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz],
+            [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz],
+        ], dtype=float)
+        faces = np.array([
+            [0, 1, 2], [0, 2, 3],
+            [4, 5, 6], [4, 6, 7],
+            [0, 1, 5], [0, 5, 4],
+            [2, 3, 7], [2, 7, 6],
+            [1, 2, 6], [1, 6, 5],
+            [0, 3, 7], [0, 7, 4],
+        ], dtype=int)
+        return gl.MeshData(vertexes=verts, faces=faces)
+
+    @staticmethod
+    def create_capped_cylinder_mesh(radius: float, length: float, segments: int = 24) -> gl.MeshData:
+        angles = np.linspace(0.0, 2.0 * np.pi, segments, endpoint=False)
+        cos_a = np.cos(angles)
+        sin_a = np.sin(angles)
+
+        bottom_ring = np.stack([radius * cos_a, radius * sin_a, np.zeros_like(cos_a)], axis=1)
+        top_ring = np.stack([radius * cos_a, radius * sin_a, np.full_like(cos_a, length)], axis=1)
+
+        bottom_center = np.array([[0.0, 0.0, 0.0]], dtype=float)
+        top_center = np.array([[0.0, 0.0, length]], dtype=float)
+        verts = np.vstack([bottom_ring, top_ring, bottom_center, top_center])
+
+        faces = []
+        for i in range(segments):
+            j = (i + 1) % segments
+
+            # Side surface
+            faces.append([i, j, i + segments])
+            faces.append([j, j + segments, i + segments])
+
+            # Bottom cap (normal -Z)
+            faces.append([2 * segments, j, i])
+
+            # Top cap (normal +Z)
+            faces.append([2 * segments + 1, i + segments, j + segments])
+
+        return gl.MeshData(vertexes=verts.astype(float), faces=np.array(faces, dtype=int))
+
+    def update_scene(self, scene) -> None:
+        for item in self.scene_items:
+            try:
+                self.removeItem(item)
+            except Exception:
+                pass
+        self.scene_items.clear()
+
+        for obj in scene.objects:
+            if obj.shape == "cube":
+                size = float(obj.size)
+                mesh = self.create_box_mesh(width=size, height=size, depth=size)
+                item = gl.GLMeshItem(meshdata=mesh, smooth=True, color=obj.color, shader='shaded', drawEdges=False)
+                pos = obj.pose[:3, 3]
+                item.translate(float(pos[0]), float(pos[1]), float(pos[2] + size / 2.0))
+                self.addItem(item)
+                self.scene_items.append(item)
