@@ -4,17 +4,21 @@ A standalone Python desktop app for a generic 6-DOF robot manipulator. Visual si
 
 ## Demo Videos
 
-**Cube Pick and Place**
-[cubepicknplace.mov](cubepicknplace.mov)
-*Robot arm autonomously picks a cube from the scene and places it at the target drop location.*
+**Cube Pick and Place** — Robot arm autonomously picks a cube and places it at the target drop location.
 
-**Full Demo**
-[demo.mov](demo.mov)
-*End-to-end walkthrough of the simulator: loading a config, running IK, and executing the pick-and-place sequence.*
+<video src="cubepicknplace.mov" controls width="720"></video>
 
-**Joint Manual Control**
-[jointmove.mov](jointmove.mov)
-*Manual joint control using the joint sliders — demonstrates real-time FK and 3D viewport updates.*
+---
+
+**Full Demo** — End-to-end walkthrough: loading a config, running IK, and executing the pick-and-place sequence.
+
+<video src="demo.mov" controls width="720"></video>
+
+---
+
+**Joint Manual Control** — Manual joint control via sliders demonstrating real-time FK and 3D viewport updates.
+
+<video src="jointmove.mov" controls width="720"></video>
 
 ## Structure
 
