@@ -6,19 +6,19 @@ A standalone Python desktop app for a generic 6-DOF robot manipulator. Visual si
 
 **Cube Pick and Place** — Robot arm autonomously picks a cube and places it at the target drop location.
 
-<video src="cubepicknplace.mov" controls width="720"></video>
+![Cube Pick and Place](cubepicknplace.gif)
 
 ---
 
 **Full Demo** — End-to-end walkthrough: loading a config, running IK, and executing the pick-and-place sequence.
 
-<video src="demo.mov" controls width="720"></video>
+![Full Demo](demo.gif)
 
 ---
 
 **Joint Manual Control** — Manual joint control via sliders demonstrating real-time FK and 3D viewport updates.
 
-<video src="jointmove.mov" controls width="720"></video>
+![Joint Manual Control](jointmove.gif)
 
 ## Structure
 
