@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import os
+import sys
+import threading
+import subprocess
 import numpy as np
 
 from PySide6.QtCore import QTimer, Qt
@@ -24,6 +27,7 @@ from PySide6.QtWidgets import (
 from app.ui.gl_widget import RobotGLView
 from app.robot.robot_model import Robot6DoF
 from app.simulation.simulator import Simulator
+from app.math3d.kinematics import inverse_kinematics_damped_least_squares
 from app.math3d.transform import euler_rpy_to_matrix, homogeneous_from_rt, matrix_to_euler_rpy
 from app.scene.scene import Scene
 
@@ -56,6 +60,10 @@ class MainWindow(QMainWindow):
         self._max_gripper_open = 0.08  # meters
         self.pick_state: dict | None = None
         self.carrying_cube_name: str | None = None
+        self.drop_pos = {"x": None, "y": None, "z": None}
+        self.reachability_label: QLabel | None = None
+        self.demo_button: QPushButton | None = None
+        self._tick_counter = 0
         
         # Initialize cartesian spinboxes for Solve IK function
         for name in ["x", "y", "z", "roll", "pitch", "yaw"]:
@@ -75,6 +83,7 @@ class MainWindow(QMainWindow):
 
         self._update_ui_from_robot()
         self.gl_view.update_scene(self.scene)
+        self._update_reachability_indicator()
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
@@ -110,6 +119,8 @@ class MainWindow(QMainWindow):
         ]:
             btn = QPushButton(text)
             btn.clicked.connect(slot)
+            if text == "Demo":
+                self.demo_button = btn
             action_layout.addWidget(btn)
         side_panel.addLayout(action_layout)
 
@@ -185,15 +196,45 @@ class MainWindow(QMainWindow):
             h.addWidget(spin)
             vlayout.addLayout(h)
             self.cube_pos[axis] = spin
+            spin.valueChanged.connect(self._update_reachability_indicator)
         
         btn_cube = QPushButton("Add Cube")
         btn_cube.clicked.connect(self.on_add_cube)
         btn_pick = QPushButton("Pick Last Cube with IK")
         btn_pick.clicked.connect(self.on_pick_cube_ik)
+        btn_pick_place = QPushButton("Pick && Place Last Cube")
+        btn_pick_place.clicked.connect(self.on_pick_place_cube)
+        btn_drop = QPushButton("Drop Carried Cube")
+        btn_drop.clicked.connect(self.on_drop_carried_cube)
         btn_clear = QPushButton("Clear Scene")
         btn_clear.clicked.connect(self.on_clear_scene)
+
+        vlayout.addWidget(QLabel("Drop Location:"))
+        for axis in ["x", "y", "z"]:
+            h = QHBoxLayout()
+            label = QLabel(f"Drop {axis.upper()}:")
+            spin = QDoubleSpinBox()
+            spin.setRange(-1.0, 1.0)
+            spin.setDecimals(3)
+            spin.setSingleStep(0.05)
+            if axis == "x":
+                spin.setValue(0.35)
+            elif axis == "z":
+                spin.setValue(0.0)
+            h.addWidget(label)
+            h.addWidget(spin)
+            vlayout.addLayout(h)
+            self.drop_pos[axis] = spin
+            spin.valueChanged.connect(self._update_reachability_indicator)
+
+        self.reachability_label = QLabel("Reachability: add a cube")
+        self.reachability_label.setStyleSheet("color: #f0c674;")
+        vlayout.addWidget(self.reachability_label)
+
         vlayout.addWidget(btn_cube)
         vlayout.addWidget(btn_pick)
+        vlayout.addWidget(btn_pick_place)
+        vlayout.addWidget(btn_drop)
         vlayout.addWidget(btn_clear)
         
         vlayout.addWidget(QLabel("To pick a cube:"))
@@ -276,6 +317,9 @@ class MainWindow(QMainWindow):
         self.gl_view.update_robot(self.robot)
         self.gl_view.update_scene(self.scene)
         self._update_ui_from_robot()
+        self._tick_counter += 1
+        if self._tick_counter % 10 == 0:
+            self._update_reachability_indicator()
 
     def on_joint_slider_changed(self, joint_index: int, value: int):
         rad = np.radians(value)
@@ -325,7 +369,10 @@ class MainWindow(QMainWindow):
         self._log(f"🎯 Solving IK for target position: ({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f})")
         self.simulator.set_cartesian_target(target)
         if self.simulator.is_playing:
-            self._log(f"✓ IK solved! Robot moving...")
+            if self.simulator.last_ik_error <= 1e-3:
+                self._log("✓ IK solved! Robot moving...")
+            else:
+                self._log(f"⚠ Best-effort IK (error {self.simulator.last_ik_error:.4f} m)")
         else:
             self._log(f"⚠ Target position may not be reachable")
 
@@ -334,21 +381,11 @@ class MainWindow(QMainWindow):
         self._log("▶ Executing motion from current joint values")
 
     def on_demo(self):
-        # Load demo trajectory from demo.json
-        self.simulator.reset()
-        try:
-            import json
-            with open("demo.json", "r", encoding="utf-8") as f:
-                data = json.load(f)
-            self.simulator.trajectory.clear()
-            for point in data.get("trajectory", []):
-                self.simulator.trajectory.points.append(np.array(point, dtype=float))
-            self.simulator.play_trajectory(self.simulator.trajectory)
-            self._log(f"Demo started with {len(self.simulator.trajectory.points)} waypoints from demo.json")
-        except FileNotFoundError:
-            self._log("demo.json not found")
-        except Exception as e:
-            self._log(f"Error loading demo: {e}")
+        if self.demo_button is not None:
+            self.demo_button.setEnabled(False)
+        self._log("▶ Running demo.py...")
+        thread = threading.Thread(target=self._run_demo_script, daemon=True)
+        thread.start()
 
     def on_save_config(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save Robot Config", "robot_config.json", "JSON files (*.json)")
@@ -443,6 +480,21 @@ class MainWindow(QMainWindow):
         self.pick_state = None
         self.carrying_cube_name = None
         self._log("Cleared scene objects")
+        self._update_reachability_indicator()
+
+    def _start_pick_sequence(self, cube_name: str, cube_pos: np.ndarray, cube_size: float, drop_pos: np.ndarray | None):
+        approach_height = max(0.06, float(cube_size) + 0.04)
+        target_pos = cube_pos + np.array([0.0, 0.0, approach_height])
+        target_pose = homogeneous_from_rt(np.eye(3), target_pos)
+
+        self.pick_state = {
+            "cube": cube_name,
+            "stage": "approach_pick",
+            "lift": 0.12,
+            "cube_size": float(cube_size),
+            "drop_pos": None if drop_pos is None else np.array(drop_pos, dtype=float),
+        }
+        self.simulator.set_cartesian_target(target_pose)
 
     def on_pick_cube_ik(self):
         if not self.scene.objects:
@@ -464,25 +516,57 @@ class MainWindow(QMainWindow):
         self.cartesian_spins["y"].blockSignals(False)
         self.cartesian_spins["z"].blockSignals(False)
         
-        # Approach above the top of cube and then pick/lift in tick callback.
-        approach_height = max(0.05, float(last_cube.size) + 0.03)
-        target_pos = cube_pos + np.array([0.0, 0.0, approach_height])
-        
-        # Create target pose (identity rotation, target position)
-        target_pose = homogeneous_from_rt(np.eye(3), target_pos)
-        
         # Log the attempt
         self._log(f"🎯 Solving IK to pick cube at ({cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f})")
-        
-        # Start staged pick sequence
-        self.pick_state = {"cube": last_cube.name, "stage": "approach", "lift": 0.12}
-        self.simulator.set_cartesian_target(target_pose)
+
+        # Start pick only flow
+        self._start_pick_sequence(last_cube.name, cube_pos, self._object_height(last_cube), drop_pos=None)
         
         # Check if motion started
         if self.simulator.is_playing:
             self._log(f"✓ IK solved! Robot moving to approach position above cube")
         else:
             self._log(f"⚠ IK solver had difficulty - position may not be reachable")
+
+    def on_pick_place_cube(self):
+        if not self.scene.objects:
+            self._log("❌ No cubes in scene!")
+            return
+
+        last_cube = self.scene.objects[-1]
+        cube_pos = last_cube.pose[:3, 3]
+        drop = np.array(
+            [
+                float(self.drop_pos["x"].value()),
+                float(self.drop_pos["y"].value()),
+                max(0.0, float(self.drop_pos["z"].value())),
+            ],
+            dtype=float,
+        )
+
+        self._log(
+            f"📦 Pick-place started: cube ({cube_pos[0]:.3f},{cube_pos[1]:.3f},{cube_pos[2]:.3f}) "
+            f"-> drop ({drop[0]:.3f},{drop[1]:.3f},{drop[2]:.3f})"
+        )
+        self._start_pick_sequence(last_cube.name, cube_pos, self._object_height(last_cube), drop_pos=drop)
+
+    def on_drop_carried_cube(self):
+        if not self.carrying_cube_name:
+            self._log("ℹ No cube is currently carried")
+            return
+
+        obj = self._get_scene_object(self.carrying_cube_name)
+        if obj is None:
+            self.carrying_cube_name = None
+            self._log("ℹ Carried cube no longer exists")
+            return
+
+        self.simulator.gripper_open = 0.06
+        self.gl_view.gripper_open = 0.06
+        obj.pose[2, 3] = max(0.0, float(obj.pose[2, 3]))
+        self._log(f"🫳 Dropped {obj.name}")
+        self.carrying_cube_name = None
+        self.pick_state = None
 
     def _read_cartesian_target(self):
         try:
@@ -500,11 +584,50 @@ class MainWindow(QMainWindow):
     def _log(self, message: str):
         self.info_text.append(message)
 
+    def _log_threadsafe(self, message: str):
+        QTimer.singleShot(0, lambda: self._log(message))
+
+    def _run_demo_script(self):
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        try:
+            proc = subprocess.run(
+                [sys.executable, "demo.py"],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            out = proc.stdout.strip()
+            err = proc.stderr.strip()
+            if out:
+                for line in out.splitlines():
+                    self._log_threadsafe(f"[demo] {line}")
+            if err:
+                for line in err.splitlines():
+                    self._log_threadsafe(f"[demo:err] {line}")
+            if proc.returncode == 0:
+                self._log_threadsafe("✅ demo.py completed")
+            else:
+                self._log_threadsafe(f"❌ demo.py failed (exit {proc.returncode})")
+        except Exception as exc:
+            self._log_threadsafe(f"❌ Failed to run demo.py: {exc}")
+        finally:
+            QTimer.singleShot(0, self._enable_demo_button)
+
+    def _enable_demo_button(self):
+        if self.demo_button is not None:
+            self.demo_button.setEnabled(True)
+
     def _get_scene_object(self, name: str):
         for obj in self.scene.objects:
             if obj.name == name:
                 return obj
         return None
+
+    def _object_height(self, obj) -> float:
+        if isinstance(obj.size, tuple):
+            return float(obj.size[2])
+        return float(obj.size)
 
     def _update_pick_sequence(self):
         # Keep carried cube attached below end-effector.
@@ -512,7 +635,8 @@ class MainWindow(QMainWindow):
             obj = self._get_scene_object(self.carrying_cube_name)
             if obj is not None:
                 ee_pos = self.robot.forward_kinematics()[:3, 3]
-                obj.pose[:3, 3] = ee_pos + np.array([0.0, 0.0, -0.06])
+                cube_height = self._object_height(obj)
+                obj.pose[:3, 3] = ee_pos + np.array([0.0, 0.0, -(cube_height + 0.015)])
 
         if not self.pick_state:
             return
@@ -523,7 +647,7 @@ class MainWindow(QMainWindow):
         cube_name = self.pick_state["cube"]
         stage = self.pick_state["stage"]
 
-        if stage == "approach":
+        if stage == "approach_pick":
             # Close gripper and attach cube.
             self.simulator.gripper_open = 0.01
             self.gl_view.gripper_open = 0.01
@@ -538,8 +662,117 @@ class MainWindow(QMainWindow):
             return
 
         if stage == "lift":
+            drop_pos = self.pick_state.get("drop_pos")
+            if drop_pos is None:
+                self.pick_state = None
+                self._log("✅ Pick complete")
+                return
+
+            cube_size = float(self.pick_state.get("cube_size", 0.05))
+            above_drop = np.array(drop_pos, dtype=float) + np.array([0.0, 0.0, max(0.08, cube_size + 0.04)])
+            self.pick_state["stage"] = "approach_drop"
+            self.simulator.set_cartesian_target(homogeneous_from_rt(np.eye(3), above_drop))
+            self._log("📍 Moving above drop location...")
+            return
+
+        if stage == "approach_drop":
+            cube_size = float(self.pick_state.get("cube_size", 0.05))
+            drop_pos = np.array(self.pick_state["drop_pos"], dtype=float)
+            place_target = drop_pos + np.array([0.0, 0.0, max(0.05, cube_size + 0.02)])
+            self.pick_state["stage"] = "lower_drop"
+            self.simulator.set_cartesian_target(homogeneous_from_rt(np.eye(3), place_target))
+            self._log("⬇ Lowering for place...")
+            return
+
+        if stage == "lower_drop":
+            obj = self._get_scene_object(cube_name)
+            if obj is not None:
+                obj.pose[:3, 3] = np.array(self.pick_state["drop_pos"], dtype=float)
+            self.simulator.gripper_open = 0.06
+            self.gl_view.gripper_open = 0.06
+            self.carrying_cube_name = None
+
+            fk = self.robot.forward_kinematics()
+            retreat_target = fk[:3, 3] + np.array([0.0, 0.0, 0.10])
+            self.pick_state["stage"] = "retreat"
+            self.simulator.set_cartesian_target(homogeneous_from_rt(np.eye(3), retreat_target))
+            self._log("🫳 Cube placed, retreating...")
+            return
+
+        if stage == "retreat":
             self.pick_state = None
-            self._log("✅ Pick complete")
+            self._log("✅ Pick and place complete")
+
+    def _is_pose_reachable(self, target_pos: np.ndarray) -> tuple[bool, float]:
+        pose = homogeneous_from_rt(np.eye(3), np.array([target_pos[0], target_pos[1], max(0.0, target_pos[2])], dtype=float))
+        seeds = [
+            np.copy(self.robot.joints),
+            np.array([0.0, 0.0, 1.62, 0.0, 1.5, 0.5], dtype=float),
+        ]
+
+        best_err = float("inf")
+        best_min_z = -1.0
+        for seed in seeds:
+            q, _, _ = inverse_kinematics_damped_least_squares(
+                self.robot,
+                pose,
+                seed,
+                max_iter=350,
+                tol=1e-4,
+                position_only=True,
+            )
+            fk = self.robot.forward_kinematics(q)
+            err = float(np.linalg.norm(fk[:3, 3] - pose[:3, 3]))
+            min_z = self.simulator._min_link_z(q)
+            if err < best_err:
+                best_err = err
+                best_min_z = min_z
+
+        reachable = (best_err < 0.01) and (best_min_z >= 0.0)
+        return reachable, best_err
+
+    def _update_reachability_indicator(self):
+        if self.reachability_label is None:
+            return
+
+        if not self.scene.objects:
+            self.reachability_label.setText("Reachability: add a cube")
+            self.reachability_label.setStyleSheet("color: #f0c674;")
+            return
+
+        obj = self.scene.objects[-1]
+        cube_pos = obj.pose[:3, 3]
+        obj_h = self._object_height(obj)
+        pick_approach = cube_pos + np.array([0.0, 0.0, max(0.06, obj_h + 0.04)], dtype=float)
+
+        drop = np.array(
+            [
+                float(self.drop_pos["x"].value()),
+                float(self.drop_pos["y"].value()),
+                max(0.0, float(self.drop_pos["z"].value())),
+            ],
+            dtype=float,
+        )
+        drop_approach = drop + np.array([0.0, 0.0, max(0.08, obj_h + 0.04)], dtype=float)
+
+        pick_ok, pick_err = self._is_pose_reachable(pick_approach)
+        drop_ok, drop_err = self._is_pose_reachable(drop_approach)
+
+        if pick_ok and drop_ok:
+            self.reachability_label.setText(
+                f"Reachability: PICK+PLACE OK (pick err {pick_err:.3f}m, drop err {drop_err:.3f}m)"
+            )
+            self.reachability_label.setStyleSheet("color: #6cc070;")
+        elif pick_ok and not drop_ok:
+            self.reachability_label.setText(
+                f"Reachability: Pick OK, Drop risky (drop err {drop_err:.3f}m)"
+            )
+            self.reachability_label.setStyleSheet("color: #f0c674;")
+        else:
+            self.reachability_label.setText(
+                f"Reachability: Pick risky (pick err {pick_err:.3f}m)"
+            )
+            self.reachability_label.setStyleSheet("color: #e06c75;")
 
 
 from app.math3d.transform import matrix_to_euler_rpy

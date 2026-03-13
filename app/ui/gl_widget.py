@@ -186,3 +186,11 @@ class RobotGLView(gl.GLViewWidget):
                 item.translate(float(pos[0]), float(pos[1]), float(pos[2] + size / 2.0))
                 self.addItem(item)
                 self.scene_items.append(item)
+            elif obj.shape == "cuboid":
+                sx, sy, sz = obj.size
+                mesh = self.create_box_mesh(width=float(sx), height=float(sy), depth=float(sz))
+                item = gl.GLMeshItem(meshdata=mesh, smooth=True, color=obj.color, shader='shaded', drawEdges=False)
+                pos = obj.pose[:3, 3]
+                item.translate(float(pos[0]), float(pos[1]), float(pos[2] + float(sz) / 2.0))
+                self.addItem(item)
+                self.scene_items.append(item)
