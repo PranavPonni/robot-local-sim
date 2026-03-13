@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import QWidget
-from PySide6.QtGui import QVector3D
+from PySide6.QtGui import QVector3D, QColor, QFont
 import pyqtgraph.opengl as gl
 import numpy as np
 
 try:
     from pyqtgraph.opengl.items.GLTextItem import GLTextItem
 except Exception:
-    GLTextItem = None
+    try:
+        GLTextItem = gl.GLTextItem
+    except Exception:
+        GLTextItem = None
 
 from app.robot.robot_model import Robot6DoF
 
@@ -32,6 +35,7 @@ class RobotGLView(gl.GLViewWidget):
         self.gripper_open = 0.06
         self.scene_items: list[gl.GLGraphicsItem] = []
         self.axis_label_items: list[gl.GLGraphicsItem] = []
+        self.axis_tick_items: list[gl.GLGraphicsItem] = []
 
         self._add_axis_labels()
 
@@ -39,19 +43,37 @@ class RobotGLView(gl.GLViewWidget):
         if GLTextItem is None:
             return
 
-        # Numeric labels along axes to help placement validation.
-        labels = [
-            (0.0, 0.0, 0.0, "0"),
-            (0.25, 0.0, 0.0, "X:0.25"),
-            (0.5, 0.0, 0.0, "X:0.50"),
-            (0.0, 0.25, 0.0, "Y:0.25"),
-            (0.0, 0.5, 0.0, "Y:0.50"),
-            (0.0, 0.0, 0.25, "Z:0.25"),
-            (0.0, 0.0, 0.5, "Z:0.50"),
-        ]
+        label_font = QFont("Helvetica", 12)
 
-        for x, y, z, text in labels:
-            item = GLTextItem(pos=(x, y, z), text=text, color=(0.95, 0.95, 0.95, 1.0))
+        # True 3D labels and tick marks placed slightly above the grid.
+        labels: list[tuple[np.ndarray, str]] = [(np.array([0.0, 0.0, 0.01], dtype=float), "0")]
+        ticks = np.arange(-0.5, 0.51, 0.1)
+
+        for x in ticks:
+            if abs(float(x)) < 1e-9:
+                continue
+            labels.append((np.array([float(x), 0.0, 0.01], dtype=float), f"{x:.1f}"))
+
+            tick_pos = np.array([[float(x), -0.01, 0.002], [float(x), 0.01, 0.002]], dtype=float)
+            tick_item = gl.GLLinePlotItem(pos=tick_pos, color=(0.8, 0.8, 0.8, 0.9), width=1.0, mode='lines')
+            self.addItem(tick_item)
+            self.axis_tick_items.append(tick_item)
+
+        for y in ticks:
+            if abs(float(y)) < 1e-9:
+                continue
+            labels.append((np.array([0.0, float(y), 0.01], dtype=float), f"{y:.1f}"))
+
+            tick_pos = np.array([[-0.01, float(y), 0.002], [0.01, float(y), 0.002]], dtype=float)
+            tick_item = gl.GLLinePlotItem(pos=tick_pos, color=(0.8, 0.8, 0.8, 0.9), width=1.0, mode='lines')
+            self.addItem(tick_item)
+            self.axis_tick_items.append(tick_item)
+
+        labels.append((np.array([0.56, 0.0, 0.01], dtype=float), "X"))
+        labels.append((np.array([0.0, 0.56, 0.01], dtype=float), "Y"))
+
+        for pos, text in labels:
+            item = GLTextItem(pos=pos, text=text, color=QColor(235, 235, 235), font=label_font)
             self.addItem(item)
             self.axis_label_items.append(item)
 
@@ -222,3 +244,4 @@ class RobotGLView(gl.GLViewWidget):
                 item.translate(float(pos[0]), float(pos[1]), float(pos[2] + float(sz) / 2.0))
                 self.addItem(item)
                 self.scene_items.append(item)
+
