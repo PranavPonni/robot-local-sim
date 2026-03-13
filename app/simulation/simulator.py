@@ -52,10 +52,8 @@ class Simulator:
     def set_cartesian_target(self, target_pose: np.ndarray) -> None:
         self.target_pose = target_pose
         q, success, err = inverse_kinematics_damped_least_squares(self.robot, target_pose, self.robot.joints)
-        if success:
-            self.set_joint_target(q)
-        else:
-            self.target_joints = None
+        # Always move the robot to the computed joint angles (even if IK didn't fully converge)
+        self.set_joint_target(q)
         self.user_mode = "cartesian"
         self.is_playing = success
 
@@ -77,7 +75,24 @@ class Simulator:
         delta = self.target_joints - current
         max_step = dt * self.interp_speed
         step = np.clip(delta, -max_step, max_step)
-        self.robot.joints = current + step
+        # Apply step but ensure intermediate EE doesn't go below ground (z < 0.0)
+        candidate = current + step
+        fk = self.robot.forward_kinematics(candidate)
+        ee_z = fk[:3, 3][2]
+        if ee_z < 0.0:
+            # reduce step size until EE is above ground or step becomes tiny
+            factor = 0.5
+            safe_candidate = current.copy()
+            while factor > 1e-3:
+                trial = current + step * factor
+                fk = self.robot.forward_kinematics(trial)
+                if fk[:3, 3][2] >= 0.0:
+                    safe_candidate = trial
+                    break
+                factor *= 0.5
+            self.robot.joints = safe_candidate
+        else:
+            self.robot.joints = candidate
 
         if self.recording:
             self.trajectory.record(self.robot.joints)
@@ -104,14 +119,16 @@ class Simulator:
             self.target_joints = None
 
     def reset(self) -> None:
-        self.robot.joints = np.zeros(6, dtype=float)
+        # Initialize robot to home position: [0.0, 0.0, 1.62, 0.0, 1.5, 0.0]
+        self.robot.joints = np.array([0.0, 0.0, 1.62, 0.0, 1.5, 0.0], dtype=float)
         self.target_joints = None
         self.target_pose = None
         self.is_playing = False
         self.trajectory.clear()
 
-    def home(self):
-        self.set_joint_target(np.array([0.0, -0.2, 0.1, 0.0, 0.0, 0.0]))
+    def home(self) -> None:
+        # Move to home position: [0.0, 0.0, 1.62, 0.0, 1.5, 0.0]
+        self.set_joint_target(np.array([0.0, 0.0, 1.62, 0.0, 1.5, 0.0], dtype=float))
 
     def play_trajectory(self, trajectory: Trajectory) -> None:
         if not trajectory.points:
@@ -152,3 +169,20 @@ class Simulator:
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
         self.trajectory = Trajectory.from_json(text)
+
+    def play_trajectory(self, trajectory: Trajectory) -> None:
+        # Load trajectory into motion queue and start playback
+        if not trajectory.points:
+            self.is_playing = False
+            return
+        # copy points into motion queue
+        self.motion_queue = [np.array(p, dtype=float) for p in trajectory.points]
+        self.target_joints = None
+        self.is_playing = True
+
+    def start_recording(self) -> None:
+        self.trajectory.clear()
+        self.recording = True
+
+    def stop_recording(self) -> None:
+        self.recording = False

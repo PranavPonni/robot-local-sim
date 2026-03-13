@@ -39,11 +39,18 @@ class Robot6DoF:
             DHLink(a=0.0, alpha=np.pi / 2, d=0.3),
             DHLink(a=0.3, alpha=0.0, d=0.0),
             DHLink(a=0.25, alpha=0.0, d=0.0),
-            DHLink(a=0.0, alpha=-np.pi / 2, d=0.2),  # Joint 4: corrected wrist orientation
+            DHLink(a=0.0, alpha=-np.pi / 2, d=0.2, theta_offset=np.pi),  # Joint 4: flip orientation
             DHLink(a=0.0, alpha=np.pi / 2, d=0.0),   # Joint 5: corrected to match wrist
             DHLink(a=0.0, alpha=0.0, d=0.1),
         ]
-        limits = [JointLimits(-np.pi, np.pi, 1.57)] * 6
+        limits = [
+            JointLimits(-np.pi, np.pi, 1.57),
+            JointLimits(-np.pi, np.pi, 1.57),
+            JointLimits(-np.pi, np.pi, 1.57),
+            JointLimits(-np.pi, np.pi, 1.57),
+            JointLimits(-np.pi, np.pi, 1.57),
+            JointLimits(0.0, np.pi / 2.0, 1.57),  # joint6 limited to 0..90deg for gripper
+        ]
         return cls(links, limits)
 
     def set_joints(self, angles: Sequence[float]) -> None:

@@ -53,6 +53,7 @@ class MainWindow(QMainWindow):
         self.joint_sliders: list[QSlider] = []
         self.joint_spinboxes: list[QDoubleSpinBox] = []
         self.cartesian_spins = {}
+        self._max_gripper_open = 0.08  # meters
         
         # Initialize cartesian spinboxes for Solve IK function
         for name in ["x", "y", "z", "roll", "pitch", "yaw"]:
@@ -124,9 +125,13 @@ class MainWindow(QMainWindow):
             h = QHBoxLayout(group)
 
             slider = QSlider(Qt.Horizontal)
-            slider.setRange(-180, 180)
             spin = QDoubleSpinBox()
-            spin.setRange(-180.0, 180.0)
+            if i == 5:
+                slider.setRange(0, 90)
+                spin.setRange(0.0, 90.0)
+            else:
+                slider.setRange(-180, 180)
+                spin.setRange(-180.0, 180.0)
             spin.setSingleStep(0.1)
             spin.setDecimals(2)
 
@@ -225,6 +230,16 @@ class MainWindow(QMainWindow):
 
         self.gripper_slider.valueChanged.connect(self.on_gripper_changed)
 
+    def _joint6_angle_to_open(self, angle_rad: float) -> float:
+        # Map joint-6 angle (0..pi/2) to gripper opening (sideways).
+        a = float(np.clip(angle_rad, 0.0, np.pi / 2.0))
+        open_val = (a / (np.pi / 2.0)) * self._max_gripper_open
+        return float(open_val)
+
+    def _open_to_joint6_angle(self, opening: float) -> float:
+        frac = np.clip(opening / self._max_gripper_open, 0.0, 1.0)
+        return float(frac * (np.pi / 2.0))
+
     def _update_ui_from_robot(self):
         for i, angle_rad in enumerate(self.robot.joints):
             deg = np.degrees(angle_rad)
@@ -239,6 +254,17 @@ class MainWindow(QMainWindow):
         pos = fk[:3, 3]
         rpy = np.degrees(matrix_to_euler_rpy(fk[:3, :3]))
         self.status_label.setText(f"EE: x={pos[0]:.3f} y={pos[1]:.3f} z={pos[2]:.3f} | rpy={rpy[0]:.1f},{rpy[1]:.1f},{rpy[2]:.1f}")
+        # Sync gripper opening from joint-6 if simulator isn't driving it directly
+        opening = self._joint6_angle_to_open(self.robot.joints[5])
+        self.simulator.gripper_open = opening
+        self.gl_view.gripper_open = opening
+        try:
+            self.gripper_slider.blockSignals(True)
+            self.gripper_slider.setValue(int(opening * 1000))
+            self.gripper_value_label.setText(f"{opening:.3f} m")
+        finally:
+            self.gripper_slider.blockSignals(False)
+
         self.gl_view.update_robot(self.robot)
 
     def _tick(self):
@@ -254,6 +280,15 @@ class MainWindow(QMainWindow):
         self.joint_spinboxes[joint_index].setValue(value)
         self.joint_spinboxes[joint_index].blockSignals(False)
         self.robot.joints[joint_index] = rad
+        # If joint 6 (index 5) controls gripper visually, sync gripper opening
+        if joint_index == 5:
+            opening = self._joint6_angle_to_open(rad)
+            self.simulator.gripper_open = opening
+            self.gl_view.gripper_open = opening
+            self.gripper_slider.blockSignals(True)
+            self.gripper_slider.setValue(int(opening * 1000))
+            self.gripper_value_label.setText(f"{opening:.3f} m")
+            self.gripper_slider.blockSignals(False)
 
     def on_joint_spin_changed(self, joint_index: int, value: float):
         rad = np.radians(value)
@@ -261,6 +296,14 @@ class MainWindow(QMainWindow):
         self.joint_sliders[joint_index].setValue(int(value))
         self.joint_sliders[joint_index].blockSignals(False)
         self.robot.joints[joint_index] = rad
+        if joint_index == 5:
+            opening = self._joint6_angle_to_open(rad)
+            self.simulator.gripper_open = opening
+            self.gl_view.gripper_open = opening
+            self.gripper_slider.blockSignals(True)
+            self.gripper_slider.setValue(int(opening * 1000))
+            self.gripper_value_label.setText(f"{opening:.3f} m")
+            self.gripper_slider.blockSignals(False)
 
     def on_home(self):
         self.simulator.home()
@@ -349,10 +392,9 @@ class MainWindow(QMainWindow):
         self._log("Replaying trajectory")
 
     def on_gripper_changed(self, value: int):
-        angle_rad = np.radians(float(value))
-        self.simulator.gripper_open = angle_rad
-        self.gl_view.gripper_open = angle_rad
-        self.gripper_value_label.setText(f"{value}°")
+        self.simulator.gripper_open = float(value) / 1000.0
+        self.gl_view.gripper_open = self.simulator.gripper_open
+        self.gripper_value_label.setText(f"{self.simulator.gripper_open:.3f} m")
 
     def on_save_trajectory(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save Trajectory", "trajectory.json", "JSON files (*.json)")

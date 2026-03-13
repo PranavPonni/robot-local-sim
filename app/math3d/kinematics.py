@@ -43,6 +43,7 @@ def inverse_kinematics_damped_least_squares(
     max_iter: int = 200,
     tol: float = 1e-4,
     damping: float = 1e-2,
+    position_only: bool = False,
 ) -> tuple[np.ndarray, bool, float]:
     q = np.array(robot.joints if initial_joints is None else initial_joints, dtype=float)
     q = robot.clamp_joints(q)
@@ -56,30 +57,47 @@ def inverse_kinematics_damped_least_squares(
 
         dp = p_target - p_current
 
-        # orientation error with axis-angle from R_current to R_target
-        R_err = R_target @ R_current.T
-        angle = np.arccos(max(-1.0, min(1.0, (np.trace(R_err) - 1) / 2)))
-        if abs(angle) < 1e-6:
-            dr = np.zeros(3)
+        if position_only:
+            err = dp
+            err_norm = np.linalg.norm(err)
+            if err_norm < tol:
+                return robot.clamp_joints(q), True, err_norm
+
+            J = compute_jacobian(robot, q)
+            Jv = J[0:3, :]
+            JJ = Jv @ Jv.T + (damping**2) * np.eye(3)
+            try:
+                dq = Jv.T @ np.linalg.solve(JJ, err)
+            except np.linalg.LinAlgError:
+                return q, False, err_norm
+
+            q += dq
+            q = robot.clamp_joints(q)
         else:
-            dr = (angle / (2.0 * np.sin(angle))) * np.array(
-                [R_err[2, 1] - R_err[1, 2], R_err[0, 2] - R_err[2, 0], R_err[1, 0] - R_err[0, 1]]
-            )
+            # orientation error with axis-angle from R_current to R_target
+            R_err = R_target @ R_current.T
+            angle = np.arccos(max(-1.0, min(1.0, (np.trace(R_err) - 1) / 2)))
+            if abs(angle) < 1e-6:
+                dr = np.zeros(3)
+            else:
+                dr = (angle / (2.0 * np.sin(angle))) * np.array(
+                    [R_err[2, 1] - R_err[1, 2], R_err[0, 2] - R_err[2, 0], R_err[1, 0] - R_err[0, 1]]
+                )
 
-        err = np.concatenate([dp, dr])
-        err_norm = np.linalg.norm(err)
-        if err_norm < tol:
-            return robot.clamp_joints(q), True, err_norm
+            err = np.concatenate([dp, dr])
+            err_norm = np.linalg.norm(err)
+            if err_norm < tol:
+                return robot.clamp_joints(q), True, err_norm
 
-        J = compute_jacobian(robot, q)
-        JJ = J @ J.T + (damping**2) * np.eye(6)
-        try:
-            dq = J.T @ np.linalg.solve(JJ, err)
-        except np.linalg.LinAlgError:
-            return q, False, err_norm
+            J = compute_jacobian(robot, q)
+            JJ = J @ J.T + (damping**2) * np.eye(6)
+            try:
+                dq = J.T @ np.linalg.solve(JJ, err)
+            except np.linalg.LinAlgError:
+                return q, False, err_norm
 
-        q += dq
-        q = robot.clamp_joints(q)
+            q += dq
+            q = robot.clamp_joints(q)
 
     final_fk = robot.forward_kinematics(q)
     final_err = np.linalg.norm(np.concatenate([target_pose[:3, 3] - final_fk[:3, 3], np.zeros(3)]))
