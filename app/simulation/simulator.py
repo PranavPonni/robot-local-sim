@@ -58,6 +58,81 @@ class Simulator:
         fk = self.robot.forward_kinematics(joints)
         return float(np.linalg.norm(fk[:3, 3] - target_pose[:3, 3]))
 
+    @staticmethod
+    def _segment_distance(p1: np.ndarray, q1: np.ndarray, p2: np.ndarray, q2: np.ndarray) -> float:
+        # Closest distance between two 3D line segments.
+        u = q1 - p1
+        v = q2 - p2
+        w = p1 - p2
+        a = float(np.dot(u, u))
+        b = float(np.dot(u, v))
+        c = float(np.dot(v, v))
+        d = float(np.dot(u, w))
+        e = float(np.dot(v, w))
+        D = a * c - b * b
+        sN, sD = D, D
+        tN, tD = D, D
+        eps = 1e-12
+
+        if D < eps:
+            sN = 0.0
+            sD = 1.0
+            tN = e
+            tD = c
+        else:
+            sN = (b * e - c * d)
+            tN = (a * e - b * d)
+            if sN < 0.0:
+                sN = 0.0
+                tN = e
+                tD = c
+            elif sN > sD:
+                sN = sD
+                tN = e + b
+                tD = c
+
+        if tN < 0.0:
+            tN = 0.0
+            if -d < 0.0:
+                sN = 0.0
+            elif -d > a:
+                sN = sD
+            else:
+                sN = -d
+                sD = a
+        elif tN > tD:
+            tN = tD
+            if (-d + b) < 0.0:
+                sN = 0.0
+            elif (-d + b) > a:
+                sN = sD
+            else:
+                sN = (-d + b)
+                sD = a
+
+        sc = 0.0 if abs(sN) < eps else sN / sD
+        tc = 0.0 if abs(tN) < eps else tN / tD
+        dP = w + (sc * u) - (tc * v)
+        return float(np.linalg.norm(dP))
+
+    def _min_nonadjacent_link_distance(self, joints: np.ndarray) -> float:
+        poses = self.robot.get_link_poses(joints)
+        points = [p[:3, 3] for p in poses]
+        min_d = float("inf")
+
+        # Use non-adjacent joint-point distances as a robust proxy for self-collision.
+        # This avoids false positives from segment-distance degeneracies in some kinematic layouts.
+        n = len(points)
+        for i in range(n):
+            for j in range(i + 2, n):
+                d = float(np.linalg.norm(points[i] - points[j]))
+                if d < min_d:
+                    min_d = d
+
+        if min_d == float("inf"):
+            return 1.0
+        return float(min_d)
+
     def _solve_best_q(self, target_pose: np.ndarray, seeds: list[np.ndarray]) -> tuple[np.ndarray, bool, float]:
         q, success, _ = inverse_kinematics_damped_least_squares(
             self.robot,
@@ -69,8 +144,11 @@ class Simulator:
         )
 
         min_z = self._min_link_z(q)
+        min_self_d = self._min_nonadjacent_link_distance(q)
         best_pos_err = self._position_error(q, target_pose)
-        best_score = best_pos_err + 8.0 * max(0.0, -min_z)
+        floor_penalty = 8.0 * max(0.0, -min_z)
+        collision_penalty = 8.0 * max(0.0, 0.02 - min_self_d)
+        best_score = best_pos_err + floor_penalty + collision_penalty
         best_q = q
 
         for seed in seeds[1:]:
@@ -83,8 +161,13 @@ class Simulator:
                 position_only=True,
             )
             min_z_try = self._min_link_z(q_try)
+            min_self_d_try = self._min_nonadjacent_link_distance(q_try)
             pos_err_try = self._position_error(q_try, target_pose)
-            score_try = pos_err_try + 8.0 * max(0.0, -min_z_try)
+            score_try = (
+                pos_err_try
+                + 8.0 * max(0.0, -min_z_try)
+                + 8.0 * max(0.0, 0.02 - min_self_d_try)
+            )
             if score_try < best_score:
                 best_q = q_try
                 best_score = score_try
@@ -159,13 +242,14 @@ class Simulator:
         # Apply step but ensure no link goes below ground (z < 0.0)
         candidate = current + step
         min_z = self._min_link_z(candidate)
-        if min_z < 0.0:
-            # reduce step size until full arm is above ground or step becomes tiny
+        min_self_d = self._min_nonadjacent_link_distance(candidate)
+        if (min_z < 0.0) or (min_self_d < 0.015):
+            # Reduce step size until arm is above ground and non-adjacent links keep clearance.
             factor = 0.5
             safe_candidate = current.copy()
             while factor > 1e-3:
                 trial = current + step * factor
-                if self._min_link_z(trial) >= 0.0:
+                if (self._min_link_z(trial) >= 0.0) and (self._min_nonadjacent_link_distance(trial) >= 0.015):
                     safe_candidate = trial
                     break
                 factor *= 0.5
