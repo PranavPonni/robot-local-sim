@@ -6,6 +6,11 @@ from PySide6.QtGui import QVector3D
 import pyqtgraph.opengl as gl
 import numpy as np
 
+try:
+    from pyqtgraph.opengl.items.GLTextItem import GLTextItem
+except Exception:
+    GLTextItem = None
+
 from app.robot.robot_model import Robot6DoF
 
 
@@ -26,6 +31,29 @@ class RobotGLView(gl.GLViewWidget):
         self.gripper_items: list[gl.GLGraphicsItem] = []
         self.gripper_open = 0.06
         self.scene_items: list[gl.GLGraphicsItem] = []
+        self.axis_label_items: list[gl.GLGraphicsItem] = []
+
+        self._add_axis_labels()
+
+    def _add_axis_labels(self):
+        if GLTextItem is None:
+            return
+
+        # Numeric labels along axes to help placement validation.
+        labels = [
+            (0.0, 0.0, 0.0, "0"),
+            (0.25, 0.0, 0.0, "X:0.25"),
+            (0.5, 0.0, 0.0, "X:0.50"),
+            (0.0, 0.25, 0.0, "Y:0.25"),
+            (0.0, 0.5, 0.0, "Y:0.50"),
+            (0.0, 0.0, 0.25, "Z:0.25"),
+            (0.0, 0.0, 0.5, "Z:0.50"),
+        ]
+
+        for x, y, z, text in labels:
+            item = GLTextItem(pos=(x, y, z), text=text, color=(0.95, 0.95, 0.95, 1.0))
+            self.addItem(item)
+            self.axis_label_items.append(item)
 
     def update_robot(self, robot: Robot6DoF):
         poses = robot.get_link_poses()

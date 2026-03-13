@@ -147,7 +147,7 @@ class Simulator:
         min_self_d = self._min_nonadjacent_link_distance(q)
         best_pos_err = self._position_error(q, target_pose)
         floor_penalty = 8.0 * max(0.0, -min_z)
-        collision_penalty = 8.0 * max(0.0, 0.02 - min_self_d)
+        collision_penalty = 18.0 * max(0.0, 0.03 - min_self_d)
         best_score = best_pos_err + floor_penalty + collision_penalty
         best_q = q
 
@@ -166,7 +166,7 @@ class Simulator:
             score_try = (
                 pos_err_try
                 + 8.0 * max(0.0, -min_z_try)
-                + 8.0 * max(0.0, 0.02 - min_self_d_try)
+                + 18.0 * max(0.0, 0.03 - min_self_d_try)
             )
             if score_try < best_score:
                 best_q = q_try
@@ -243,13 +243,13 @@ class Simulator:
         candidate = current + step
         min_z = self._min_link_z(candidate)
         min_self_d = self._min_nonadjacent_link_distance(candidate)
-        if (min_z < 0.0) or (min_self_d < 0.015):
+        if (min_z < 0.0) or (min_self_d < 0.03):
             # Reduce step size until arm is above ground and non-adjacent links keep clearance.
             factor = 0.5
             safe_candidate = current.copy()
             while factor > 1e-3:
                 trial = current + step * factor
-                if (self._min_link_z(trial) >= 0.0) and (self._min_nonadjacent_link_distance(trial) >= 0.015):
+                if (self._min_link_z(trial) >= 0.0) and (self._min_nonadjacent_link_distance(trial) >= 0.03):
                     safe_candidate = trial
                     break
                 factor *= 0.5

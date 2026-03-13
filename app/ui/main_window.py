@@ -1,10 +1,9 @@
 """Main window and GUI for the 6-DOF robot simulator."""
 from __future__ import annotations
 
-import os
 import numpy as np
 
-from PySide6.QtCore import QTimer, Qt, QProcess
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -60,7 +59,6 @@ class MainWindow(QMainWindow):
         self.drop_pos = {"x": None, "y": None, "z": None}
         self.reachability_label: QLabel | None = None
         self.demo_button: QPushButton | None = None
-        self.demo_process: QProcess | None = None
         self._tick_counter = 0
         
         # Initialize cartesian spinboxes for Solve IK function
@@ -110,7 +108,6 @@ class MainWindow(QMainWindow):
             ("Home", self.on_home),
             ("Reset", self.on_reset),
             ("Solve IK", self.on_solve_ik),
-            ("Execute", self.on_execute),
             ("Demo", self.on_demo),
             ("Save Config", self.on_save_config),
             ("Load Config", self.on_load_config),
@@ -200,7 +197,7 @@ class MainWindow(QMainWindow):
         btn_cube.clicked.connect(self.on_add_cube)
         btn_pick = QPushButton("Pick Last Cube with IK")
         btn_pick.clicked.connect(self.on_pick_cube_ik)
-        btn_pick_place = QPushButton("Pick && Place Last Cube")
+        btn_pick_place = QPushButton("Pick and Place Cube")
         btn_pick_place.clicked.connect(self.on_pick_place_cube)
         btn_drop = QPushButton("Drop Carried Cube")
         btn_drop.clicked.connect(self.on_drop_carried_cube)
@@ -379,23 +376,23 @@ class MainWindow(QMainWindow):
         self._log("Executing motion from current joint values")
 
     def on_demo(self):
-        if self.demo_process is not None and self.demo_process.state() != QProcess.NotRunning:
-            self._log("demo.py is already running")
-            return
+        # Run an in-app demo so robot motion is visible in this GUI.
+        self.simulator.reset()
+        self.scene.clear()
+        self.pick_state = None
+        self.carrying_cube_name = None
 
-        if self.demo_button is not None:
-            self.demo_button.setEnabled(False)
-        self._log("Running demo.py...")
+        pick_pos = np.array([0.24, -0.06, 0.0], dtype=float)
+        drop_pos = np.array([0.34, 0.10, 0.0], dtype=float)
+        cube_name = "cube_demo"
+        self.scene.add_cube(cube_name, homogeneous_from_rt(np.eye(3), pick_pos), size=0.06)
 
-        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        self.demo_process = QProcess(self)
-        self.demo_process.setProgram("python")
-        self.demo_process.setArguments(["demo.py"])
-        self.demo_process.setWorkingDirectory(repo_root)
-        self.demo_process.readyReadStandardOutput.connect(self._on_demo_stdout)
-        self.demo_process.readyReadStandardError.connect(self._on_demo_stderr)
-        self.demo_process.finished.connect(self._on_demo_finished)
-        self.demo_process.start()
+        self.drop_pos["x"].setValue(float(drop_pos[0]))
+        self.drop_pos["y"].setValue(float(drop_pos[1]))
+        self.drop_pos["z"].setValue(float(drop_pos[2]))
+
+        self._log("Demo started: in-app pick and place")
+        self._start_pick_sequence(cube_name, pick_pos, 0.06, drop_pos=drop_pos)
 
     def on_save_config(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save Robot Config", "robot_config.json", "JSON files (*.json)")
@@ -562,6 +559,13 @@ class MainWindow(QMainWindow):
 
     def on_drop_carried_cube(self):
         if not self.carrying_cube_name:
+            if self.pick_state is not None:
+                self.pick_state = None
+                self.simulator.motion_queue.clear()
+                self.simulator.target_joints = None
+                self.simulator.is_playing = False
+                self._log("Pick/place canceled")
+                return
             self._log("No cube is currently carried")
             return
 
@@ -593,33 +597,6 @@ class MainWindow(QMainWindow):
 
     def _log(self, message: str):
         self.info_text.append(message)
-
-    def _on_demo_stdout(self):
-        if self.demo_process is None:
-            return
-        data = bytes(self.demo_process.readAllStandardOutput()).decode("utf-8", errors="replace")
-        for line in data.splitlines():
-            if line.strip():
-                self._log(f"[demo] {line}")
-
-    def _on_demo_stderr(self):
-        if self.demo_process is None:
-            return
-        data = bytes(self.demo_process.readAllStandardError()).decode("utf-8", errors="replace")
-        for line in data.splitlines():
-            if line.strip():
-                self._log(f"[demo:err] {line}")
-
-    def _on_demo_finished(self, exit_code: int, _exit_status):
-        if exit_code == 0:
-            self._log("demo.py completed")
-        else:
-            self._log(f"demo.py failed (exit {exit_code})")
-        self._enable_demo_button()
-
-    def _enable_demo_button(self):
-        if self.demo_button is not None:
-            self.demo_button.setEnabled(True)
 
     def _get_scene_object(self, name: str):
         for obj in self.scene.objects:
@@ -668,7 +645,7 @@ class MainWindow(QMainWindow):
             drop_pos = self.pick_state.get("drop_pos")
             if drop_pos is None:
                 self.pick_state = None
-                self._log("✅ Pick complete")
+                self._log("Pick complete")
                 return
 
             cube_size = float(self.pick_state.get("cube_size", 0.05))
